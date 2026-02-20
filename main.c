@@ -1,0 +1,105 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "formulation.h"
+#include "version.h"
+#include "database.h"
+
+int main() {
+    printf("========================================\n");
+    printf("  Soda Formulation Manager v0.1.0\n");
+    printf("========================================\n");
+    
+    // Create Cinnamon Roll formulation
+    Formulation* cinroll = create_formulation("CINROLL", "Cinnamon Roll");
+    
+    add_compound(cinroll, "Cinnamaldehyde", 30.0);
+    add_compound(cinroll, "Vanillin", 50.0);
+    add_compound(cinroll, "Diacetyl", 2.0);
+    add_compound(cinroll, "Eugenol", 5.0);
+    add_compound(cinroll, "Ethyl maltol", 15.0);
+    
+    cinroll->target_ph = 3.2;
+    cinroll->target_brix = 12.0;
+    
+    print_formulation(cinroll);
+    
+    // Create Cherry Cream formulation
+    Formulation* cherry = create_formulation("CHERRYCREAM", "Cherry Cream");
+    
+    add_compound(cherry, "Benzaldehyde", 40.0);
+    add_compound(cherry, "Vanillin", 60.0);
+    add_compound(cherry, "Diacetyl", 3.0);
+    add_compound(cherry, "Delta-decalactone", 5.0);
+    add_compound(cherry, "Ethyl cinnamate", 2.0);
+    
+    cherry->target_ph = 3.3;
+    cherry->target_brix = 13.0;
+    
+    print_formulation(cherry);
+    
+    // Test version incrementing
+    printf("\n=== Version Control Demo ===\n");
+    Version v = create_version(1, 0, 0);
+    printf("Initial: ");
+    print_version(v);
+    printf("\n");
+    
+    v = increment_version(v, INCREMENT_MINOR);
+    printf("After minor update: ");
+    print_version(v);
+    printf("\n");
+    
+    v = increment_version(v, INCREMENT_MAJOR);
+    printf("After major update: ");
+    print_version(v);
+    printf("\n\n");
+    
+    // Database demo
+    printf("=== Database Demo ===\n");
+
+    if (db_open("formulations.db") == 0) {
+
+        // Save initial versions (cinroll and cherry are both v1.0.0)
+        db_save_formulation(cinroll);
+        db_save_formulation(cherry);
+
+        // Patch increment cinroll: minor tweak to pH (<10% change)
+        cinroll->version = increment_version(cinroll->version, INCREMENT_PATCH);
+        cinroll->target_ph = 3.3f;
+        db_save_formulation(cinroll);
+
+        // Minor increment cinroll: add Sotolon compound
+        cinroll->version = increment_version(cinroll->version, INCREMENT_MINOR);
+        add_compound(cinroll, "Sotolon", 0.3f);
+        db_save_formulation(cinroll);
+
+        // List all flavors at their latest version
+        db_list_formulations();
+
+        // Show all versions of CINROLL
+        db_get_version_history("CINROLL");
+
+        // Load CINROLL v1.0.0 from DB into a stack-allocated struct
+        {
+            Formulation loaded;
+            printf("\n--- Loading CINROLL v1.0.0 from database ---\n");
+            if (db_load_version("CINROLL", 1, 0, 0, &loaded) == 0)
+                print_formulation(&loaded);
+
+            printf("--- Loading latest CINROLL ---\n");
+            if (db_load_latest("CINROLL", &loaded) == 0)
+                print_formulation(&loaded);
+        }
+
+        db_close();
+    }
+
+    // Cleanup
+    free_formulation(cinroll);
+    free_formulation(cherry);
+    
+    printf("Press Enter to exit...");
+    getchar();
+    
+    return 0;
+}

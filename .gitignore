@@ -1,0 +1,21 @@
+# Claude Code tooling
+.claude/
+
+# Build output
+x64/
+Debug/
+Release/
+Win32/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+ipch/
+
+# SQLite database files (runtime, not source)
+*.db
+*.db-wal
+*.db-shm
