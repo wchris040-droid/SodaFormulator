@@ -131,6 +131,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="batch.c" />
     <ClCompile Include="compound.c" />
     <ClCompile Include="database.c" />
     <ClCompile Include="formulation.c" />
@@ -142,6 +143,7 @@
     <ClCompile Include="version.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="batch.h" />
     <ClInclude Include="compound.h" />
     <ClInclude Include="database.h" />
     <ClInclude Include="formulation.h" />

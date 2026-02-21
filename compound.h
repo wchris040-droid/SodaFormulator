@@ -17,6 +17,7 @@ typedef struct {
     char  storage_temp[16];      /* "RT", "2-8C", "-20C" */
     int   requires_solubilizer;  /* 0/1 */
     int   requires_inert_atm;    /* 0/1 */
+    float cost_per_gram;         /* USD/g; 0.0 = not set */
 } CompoundInfo;
 
 /* Check ppm against max_use_ppm.

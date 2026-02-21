@@ -40,4 +40,6 @@ void compound_print(const CompoundInfo* c)
     printf("Storage: %-16s Requires solubilizer: %s\n",
         c->storage_temp,
         c->requires_solubilizer ? "Yes" : "No");
+    if (c->cost_per_gram > 0.0f)
+        printf("Cost:    $%.4f / g\n", c->cost_per_gram);
 }

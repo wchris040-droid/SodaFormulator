@@ -4,6 +4,7 @@
 #include "compound.h"
 #include "formulation.h"
 #include "tasting.h"
+#include "batch.h"
 #include "version.h"
 #include "database.h"
 
@@ -178,6 +179,64 @@ int main() {
         // List all sessions + averages for CINROLL
         db_list_tastings_for_flavor("CINROLL");
         db_get_avg_scores("CINROLL");
+
+        // Phase 4: Batch Scaling, Cost Analysis, Inventory
+        printf("\n=== Phase 4: Batch Scaling Demo ===\n");
+
+        db_seed_inventory();
+
+        {
+            // Load CINROLL v1.1.0 (latest) to batch against live formulation
+            Formulation latest;
+            BatchRun    br;
+
+            memset(&br, 0, sizeof(br));
+
+            if (db_load_latest("CINROLL", &latest) == 0) {
+                // Calculate weights for 20 L batch
+                batch_calculate(&br, &latest, 20.0f);
+
+                // Fill cost data from compound library
+                db_cost_batch(&br);
+
+                // Check inventory before committing
+                printf("\nInventory check for 20 L CINROLL batch:\n");
+                db_check_inventory(&br);
+
+                // Print weighing manifest
+                batch_print_manifest(&br);
+
+                // Save the batch (auto-generates batch number)
+                db_save_batch("CINROLL",
+                              latest.version.major,
+                              latest.version.minor,
+                              latest.version.patch,
+                              &br);
+
+                // Print production label
+                batch_print_label(&br, &latest);
+
+                // Deduct from inventory
+                db_deduct_inventory(&br);
+            }
+
+            // Second batch: CHERRYCREAM v1.0.0, 10 L
+            memset(&br, 0, sizeof(br));
+            if (db_load_latest("CHERRYCREAM", &latest) == 0) {
+                batch_calculate(&br, &latest, 10.0f);
+                db_cost_batch(&br);
+                db_save_batch("CHERRYCREAM",
+                              latest.version.major,
+                              latest.version.minor,
+                              latest.version.patch,
+                              &br);
+                db_deduct_inventory(&br);
+            }
+        }
+
+        // Show batch history and final inventory
+        db_list_batches("CINROLL");
+        db_list_inventory();
 
         db_close();
     }
