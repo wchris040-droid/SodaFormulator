@@ -18,6 +18,8 @@ typedef struct {
     int   requires_solubilizer;  /* 0/1 */
     int   requires_inert_atm;    /* 0/1 */
     float cost_per_gram;         /* USD/g; 0.0 = not set */
+    char  flavor_descriptors[256]; /* retronasal/taste keywords */
+    float odor_threshold_ppm;      /* detection threshold in water (ppm) */
 } CompoundInfo;
 
 /* Check ppm against max_use_ppm.
