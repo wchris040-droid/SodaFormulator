@@ -2,6 +2,7 @@
 #define DATABASE_H
 
 #include "formulation.h"
+#include "compound.h"
 
 /*
  * Opens (or creates) the SQLite database at db_path.
@@ -48,5 +49,36 @@ int db_list_formulations(void);
  * Returns 0 on success, negative on DB error.
  */
 int db_get_version_history(const char* flavor_code);
+
+/*
+ * Seed compound_library with pre-defined compounds (INSERT OR IGNORE).
+ * Safe to call every startup. Returns 0 on success, negative on DB error.
+ */
+int db_seed_compound_library(void);
+
+/*
+ * Insert or replace a single compound in the library.
+ * Returns 0 on success, negative on DB error.
+ */
+int db_add_compound(const CompoundInfo* c);
+
+/*
+ * Load a compound by name into c.
+ * Returns 0 = found, 1 = not found, negative = DB error.
+ */
+int db_get_compound_by_name(const char* name, CompoundInfo* c);
+
+/*
+ * Print formatted table of all compounds in the library.
+ * Returns 0 on success, negative on DB error.
+ */
+int db_list_compounds(void);
+
+/*
+ * Check every compound in f against library limits.
+ * Prints [SAFETY WARNING] lines for each violation.
+ * Returns count of violations (0 = all clear).
+ */
+int db_validate_formulation(const Formulation* f);
 
 #endif

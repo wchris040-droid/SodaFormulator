@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "compound.h"
 #include "formulation.h"
 #include "version.h"
 #include "database.h"
@@ -58,6 +59,24 @@ int main() {
     printf("=== Database Demo ===\n");
 
     if (db_open("formulations.db") == 0) {
+
+        // Compound library demo
+        printf("\n=== Compound Library Demo ===\n");
+        db_seed_compound_library();
+        db_list_compounds();
+
+        {
+            CompoundInfo info;
+            printf("\n--- Cinnamaldehyde info card ---\n");
+            if (db_get_compound_by_name("Cinnamaldehyde", &info) == 0)
+                compound_print(&info);
+
+            printf("\nValidating CINROLL v1.0.0 against library limits:\n");
+            {
+                int v = db_validate_formulation(cinroll);
+                if (v == 0) printf("  All compounds within limits.\n");
+            }
+        }
 
         // Save initial versions (cinroll and cherry are both v1.0.0)
         db_save_formulation(cinroll);
