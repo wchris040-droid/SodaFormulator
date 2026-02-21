@@ -638,9 +638,11 @@ int db_seed_compound_library(void)
     sqlite3_finalize(stmt);
     stmt = NULL;
 
-    /* Always update cost_per_gram so existing DBs get current pricing */
+    /* Set cost_per_gram only where it hasn't been set yet (cost == 0).
+       This preserves any user edits made after initial seeding. */
     rc = sqlite3_prepare_v2(g_db,
-        "UPDATE compound_library SET cost_per_gram = ? WHERE compound_name = ?;",
+        "UPDATE compound_library SET cost_per_gram = ? "
+        "WHERE compound_name = ? AND cost_per_gram = 0;",
         -1, &stmt, NULL);
     if (rc == SQLITE_OK) {
         for (i = 0; i < NCOMPOUNDS; i++) {
@@ -840,6 +842,42 @@ int db_list_compounds(void)
 
     sqlite3_finalize(stmt);
     return (rc == SQLITE_DONE) ? 0 : rc;
+}
+
+/* =========================================================================
+   db_set_compound_cost
+   ========================================================================= */
+int db_set_compound_cost(const char* compound_name, float cost_per_gram)
+{
+    sqlite3_stmt* stmt = NULL;
+    int rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE compound_library SET cost_per_gram = ? WHERE compound_name = ?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_double(stmt, 1, (double)cost_per_gram);
+    sqlite3_bind_text  (stmt, 2, compound_name, -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "Cost update error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    if (sqlite3_changes(g_db) == 0) {
+        fprintf(stderr, "Cost update: compound '%s' not found.\n", compound_name);
+        return 1;
+    }
+
+    printf("Cost updated: %s = $%.4f / g\n", compound_name, cost_per_gram);
+    return 0;
 }
 
 /* =========================================================================

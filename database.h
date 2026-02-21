@@ -77,6 +77,13 @@ int db_get_compound_by_name(const char* name, CompoundInfo* c);
 int db_list_compounds(void);
 
 /*
+ * Update the cost_per_gram for a single compound.
+ * Change persists in the DB and survives restarts.
+ * Returns 0 on success, 1 if compound not found, negative on DB error.
+ */
+int db_set_compound_cost(const char* compound_name, float cost_per_gram);
+
+/*
  * Check every compound in f against library limits.
  * Prints [SAFETY WARNING] lines for each violation.
  * Returns count of violations (0 = all clear).
