@@ -9,6 +9,8 @@
 
 static sqlite3* g_db = NULL;
 
+sqlite3* db_get_handle(void) { return g_db; }
+
 /* =========================================================================
    Private helper: execute a parameter-free SQL statement (DDL / PRAGMA /
    transaction control).  Uses sqlite3_exec with NULL callback.

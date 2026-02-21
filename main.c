@@ -1,252 +1,218 @@
+#include <windows.h>
+#include <commctrl.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "compound.h"
-#include "formulation.h"
-#include "tasting.h"
-#include "batch.h"
-#include "version.h"
+#include "ui.h"
 #include "database.h"
 
-int main() {
-    printf("========================================\n");
-    printf("  Soda Formulation Manager v0.1.0\n");
-    printf("========================================\n");
-    
-    // Create Cinnamon Roll formulation
-    Formulation* cinroll = create_formulation("CINROLL", "Cinnamon Roll");
-    
-    add_compound(cinroll, "Cinnamaldehyde", 30.0);
-    add_compound(cinroll, "Vanillin", 50.0);
-    add_compound(cinroll, "Diacetyl", 2.0);
-    add_compound(cinroll, "Eugenol", 5.0);
-    add_compound(cinroll, "Ethyl maltol", 15.0);
-    
-    cinroll->target_ph = 3.2f;
-    cinroll->target_brix = 12.0f;
-    
-    print_formulation(cinroll);
-    
-    // Create Cherry Cream formulation
-    Formulation* cherry = create_formulation("CHERRYCREAM", "Cherry Cream");
-    
-    add_compound(cherry, "Benzaldehyde", 40.0);
-    add_compound(cherry, "Vanillin", 60.0);
-    add_compound(cherry, "Diacetyl", 3.0);
-    add_compound(cherry, "Delta-decalactone", 5.0);
-    add_compound(cherry, "Ethyl cinnamate", 2.0);
-    
-    cherry->target_ph = 3.3f;
-    cherry->target_brix = 13.0f;
-    
-    print_formulation(cherry);
-    
-    // Test version incrementing
-    printf("\n=== Version Control Demo ===\n");
-    Version v = create_version(1, 0, 0);
-    printf("Initial: ");
-    print_version(v);
-    printf("\n");
-    
-    v = increment_version(v, INCREMENT_MINOR);
-    printf("After minor update: ");
-    print_version(v);
-    printf("\n");
-    
-    v = increment_version(v, INCREMENT_MAJOR);
-    printf("After major update: ");
-    print_version(v);
-    printf("\n\n");
-    
-    // Database demo
-    printf("=== Database Demo ===\n");
+HINSTANCE g_hInst;
 
-    if (db_open("formulations.db") == 0) {
+static HWND g_hStatus;
+static HWND g_hNav;
+static HWND g_hPanels[5];
+static int  g_curPanel = -1;
 
-        // Compound library demo
-        printf("\n=== Compound Library Demo ===\n");
-        db_seed_compound_library();
-        db_list_compounds();
+typedef void (*PanelRefreshFn)(void);
+static PanelRefreshFn g_refreshFns[5];
 
+/* Forward declarations */
+static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+/* -------------------------------------------------------------------------
+   ShowPanel — hide the old panel, size and show the new one, then refresh.
+   ------------------------------------------------------------------------- */
+static void ShowPanel(HWND hMain, int idx)
+{
+    RECT rc;
+    RECT srect;
+    int  sh, i;
+    int  pw, ph;
+
+    if (idx < 0 || idx >= 5) return;
+
+    GetClientRect(hMain, &rc);
+
+    /* Height of status bar */
+    GetWindowRect(g_hStatus, &srect);
+    sh = srect.bottom - srect.top;
+
+    pw = rc.right  - NAV_WIDTH;
+    ph = rc.bottom - sh;
+
+    for (i = 0; i < 5; i++)
+        ShowWindow(g_hPanels[i], (i == idx) ? SW_SHOW : SW_HIDE);
+
+    MoveWindow(g_hPanels[idx], NAV_WIDTH, 0, pw, ph, TRUE);
+
+    g_curPanel = idx;
+    g_refreshFns[idx]();
+}
+
+/* -------------------------------------------------------------------------
+   MainWndProc
+   ------------------------------------------------------------------------- */
+static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+
+    case WM_CREATE:
+    {
+        int i;
+
+        /* Navigation list box */
+        g_hNav = CreateWindowEx(0, "LISTBOX", NULL,
+            WS_CHILD | WS_VISIBLE | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_BORDER,
+            0, 0, NAV_WIDTH, 400,
+            hWnd, (HMENU)(INT_PTR)IDC_NAV_LIST, g_hInst, NULL);
+
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Formulations");
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Compounds");
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Tasting Sessions");
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Batches");
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Inventory");
+
+        /* Status bar */
+        g_hStatus = CreateStatusWindow(WS_CHILD | WS_VISIBLE,
+            "Ready", hWnd, IDC_STATUS_BAR);
+
+        /* Create panels (hidden by default) */
+        g_hPanels[NAV_FORMULATIONS] = Panel_Formulations_Create(hWnd);
+        g_hPanels[NAV_COMPOUNDS]    = Panel_Compounds_Create(hWnd);
+        g_hPanels[NAV_TASTING]      = Panel_Tasting_Create(hWnd);
+        g_hPanels[NAV_BATCH]        = Panel_Batch_Create(hWnd);
+        g_hPanels[NAV_INVENTORY]    = Panel_Inventory_Create(hWnd);
+
+        g_refreshFns[NAV_FORMULATIONS] = Panel_Formulations_Refresh;
+        g_refreshFns[NAV_COMPOUNDS]    = Panel_Compounds_Refresh;
+        g_refreshFns[NAV_TASTING]      = Panel_Tasting_Refresh;
+        g_refreshFns[NAV_BATCH]        = Panel_Batch_Refresh;
+        g_refreshFns[NAV_INVENTORY]    = Panel_Inventory_Refresh;
+
+        for (i = 0; i < 5; i++)
+            ShowWindow(g_hPanels[i], SW_HIDE);
+
+        /* Select the first nav item; post to self so WM_SIZE has fired first */
+        SendMessage(g_hNav, LB_SETCURSEL, 0, 0);
+        PostMessage(hWnd, WM_COMMAND,
+            MAKEWPARAM(IDC_NAV_LIST, LBN_SELCHANGE), (LPARAM)g_hNav);
+
+        SendMessage(g_hStatus, SB_SETTEXT, 0,
+            (LPARAM)"formulations.db open");
+    }
+    return 0;
+
+    case WM_SIZE:
+    {
+        WORD w = LOWORD(lParam);
+        WORD h = HIWORD(lParam);
+        RECT srect;
+        int  sh;
+
+        /* Resize status bar first */
+        SendMessage(g_hStatus, WM_SIZE, 0, 0);
+        GetWindowRect(g_hStatus, &srect);
+        sh = srect.bottom - srect.top;
+
+        /* Resize nav list */
+        MoveWindow(g_hNav, 0, 0, NAV_WIDTH, h - sh, TRUE);
+
+        /* Resize current content panel */
+        if (g_curPanel >= 0 && g_hPanels[g_curPanel])
+            MoveWindow(g_hPanels[g_curPanel],
+                NAV_WIDTH, 0, w - NAV_WIDTH, h - sh, TRUE);
+    }
+    return 0;
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDC_NAV_LIST &&
+            HIWORD(wParam) == LBN_SELCHANGE)
         {
-            CompoundInfo info;
-            printf("\n--- Cinnamaldehyde info card ---\n");
-            if (db_get_compound_by_name("Cinnamaldehyde", &info) == 0)
-                compound_print(&info);
+            char buf[128];
+            int  sel;
+            const char* labels[] = {
+                "Formulations", "Compounds",
+                "Tasting Sessions", "Batches", "Inventory"
+            };
 
-            printf("\nValidating CINROLL v1.0.0 against library limits:\n");
-            {
-                int v = db_validate_formulation(cinroll);
-                if (v == 0) printf("  All compounds within limits.\n");
+            sel = (int)SendMessage(g_hNav, LB_GETCURSEL, 0, 0);
+            if (sel != LB_ERR) {
+                ShowPanel(hWnd, sel);
+                sprintf(buf, "formulations.db  |  %s", labels[sel]);
+                SendMessage(g_hStatus, SB_SETTEXT, 0, (LPARAM)buf);
             }
         }
+        return 0;
 
-        // Save initial versions (cinroll and cherry are both v1.0.0)
-        db_save_formulation(cinroll);
-        db_save_formulation(cherry);
-
-        // Patch increment cinroll: minor tweak to pH (<10% change)
-        cinroll->version = increment_version(cinroll->version, INCREMENT_PATCH);
-        cinroll->target_ph = 3.3f;
-        db_save_formulation(cinroll);
-
-        // Minor increment cinroll: add Sotolon compound
-        cinroll->version = increment_version(cinroll->version, INCREMENT_MINOR);
-        add_compound(cinroll, "Sotolon", 0.3f);
-        db_save_formulation(cinroll);
-
-        // List all flavors at their latest version
-        db_list_formulations();
-
-        // Show all versions of CINROLL
-        db_get_version_history("CINROLL");
-
-        // Load CINROLL v1.0.0 from DB into a stack-allocated struct
-        {
-            Formulation loaded;
-            printf("\n--- Loading CINROLL v1.0.0 from database ---\n");
-            if (db_load_version("CINROLL", 1, 0, 0, &loaded) == 0)
-                print_formulation(&loaded);
-
-            printf("--- Loading latest CINROLL ---\n");
-            if (db_load_latest("CINROLL", &loaded) == 0)
-                print_formulation(&loaded);
-        }
-
-        // Tasting session demo
-        printf("\n=== Tasting Session Demo ===\n");
-        {
-            TastingSession ts;
-
-            // Session 1: CINROLL v1.0.0 — evaluator A
-            tasting_create(&ts, 0, "NFide");
-            ts.overall_score   = 7.5f;
-            ts.aroma_score     = 8.0f;
-            ts.flavor_score    = 7.0f;
-            ts.mouthfeel_score = 7.5f;
-            ts.finish_score    = 7.0f;
-            ts.sweetness_score = 6.5f;
-            strncpy(ts.notes,
-                "Cinnamon presence strong on entry, vanillin rounds out mid-palate. "
-                "Finish is slightly astringent. Reduce cinnamaldehyde 5 ppm next patch.",
-                MAX_TASTING_NOTES - 1);
-            db_save_tasting("CINROLL", 1, 0, 0, &ts);
-            tasting_print(&ts);
-
-            // Session 2: CINROLL v1.0.0 — evaluator B
-            tasting_create(&ts, 0, "Panelist_02");
-            ts.overall_score   = 8.0f;
-            ts.aroma_score     = 8.5f;
-            ts.flavor_score    = 7.5f;
-            ts.mouthfeel_score = 8.0f;
-            ts.finish_score    = 7.5f;
-            ts.sweetness_score = 7.0f;
-            strncpy(ts.notes,
-                "Excellent bakery note. Diacetyl butter detectable but not over-threshold. "
-                "Very balanced for a prototype.",
-                MAX_TASTING_NOTES - 1);
-            db_save_tasting("CINROLL", 1, 0, 0, &ts);
-
-            // Session 3: CINROLL v1.1.0 — evaluator A (after sotolon addition)
-            tasting_create(&ts, 0, "NFide");
-            ts.overall_score   = 8.5f;
-            ts.aroma_score     = 9.0f;
-            ts.flavor_score    = 8.0f;
-            ts.mouthfeel_score = 8.0f;
-            ts.finish_score    = 8.5f;
-            ts.sweetness_score = 7.0f;
-            strncpy(ts.notes,
-                "Sotolon addition lifts caramel depth without overwhelming. "
-                "Finish is significantly improved. Recommend proceeding to batch scale.",
-                MAX_TASTING_NOTES - 1);
-            db_save_tasting("CINROLL", 1, 1, 0, &ts);
-
-            // Session 4: CHERRYCREAM v1.0.0 — evaluator A
-            tasting_create(&ts, 0, "NFide");
-            ts.overall_score   = 8.0f;
-            ts.aroma_score     = 8.5f;
-            ts.flavor_score    = 8.0f;
-            ts.mouthfeel_score = 7.5f;
-            ts.finish_score    = 7.5f;
-            ts.sweetness_score = 8.0f;
-            strncpy(ts.notes,
-                "Benzaldehyde cherry note clean and true. Delta-decalactone adds good "
-                "creaminess. Ethyl cinnamate spice element is subtle but effective.",
-                MAX_TASTING_NOTES - 1);
-            db_save_tasting("CHERRYCREAM", 1, 0, 0, &ts);
-        }
-
-        // List all sessions + averages for CINROLL
-        db_list_tastings_for_flavor("CINROLL");
-        db_get_avg_scores("CINROLL");
-
-        // Phase 4: Batch Scaling, Cost Analysis, Inventory
-        printf("\n=== Phase 4: Batch Scaling Demo ===\n");
-
-        db_seed_inventory();
-
-        {
-            // Load CINROLL v1.1.0 (latest) to batch against live formulation
-            Formulation latest;
-            BatchRun    br;
-
-            memset(&br, 0, sizeof(br));
-
-            if (db_load_latest("CINROLL", &latest) == 0) {
-                // Calculate weights for 20 L batch
-                batch_calculate(&br, &latest, 20.0f);
-
-                // Fill cost data from compound library
-                db_cost_batch(&br);
-
-                // Check inventory before committing
-                printf("\nInventory check for 20 L CINROLL batch:\n");
-                db_check_inventory(&br);
-
-                // Print weighing manifest
-                batch_print_manifest(&br);
-
-                // Save the batch (auto-generates batch number)
-                db_save_batch("CINROLL",
-                              latest.version.major,
-                              latest.version.minor,
-                              latest.version.patch,
-                              &br);
-
-                // Print production label
-                batch_print_label(&br, &latest);
-
-                // Deduct from inventory
-                db_deduct_inventory(&br);
-            }
-
-            // Second batch: CHERRYCREAM v1.0.0, 10 L
-            memset(&br, 0, sizeof(br));
-            if (db_load_latest("CHERRYCREAM", &latest) == 0) {
-                batch_calculate(&br, &latest, 10.0f);
-                db_cost_batch(&br);
-                db_save_batch("CHERRYCREAM",
-                              latest.version.major,
-                              latest.version.minor,
-                              latest.version.patch,
-                              &br);
-                db_deduct_inventory(&br);
-            }
-        }
-
-        // Show batch history and final inventory
-        db_list_batches("CINROLL");
-        db_list_inventory();
-
-        db_close();
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
     }
 
-    // Cleanup
-    free_formulation(cinroll);
-    free_formulation(cherry);
-    
-    printf("Press Enter to exit...");
-    getchar();
-    
-    return 0;
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+/* -------------------------------------------------------------------------
+   WinMain
+   ------------------------------------------------------------------------- */
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+                   LPSTR lpCmdLine, int nCmdShow)
+{
+    WNDCLASSEX wc;
+    HWND       hWnd;
+    MSG        msg;
+    INITCOMMONCONTROLSEX icex;
+
+    (void)hPrevInstance;
+    (void)lpCmdLine;
+
+    g_hInst = hInstance;
+
+    /* Initialise common controls */
+    icex.dwSize = sizeof(icex);
+    icex.dwICC  = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icex);
+
+    /* Open database */
+    if (db_open("formulations.db") != 0) {
+        MessageBox(NULL, "Failed to open formulations.db", "Error", MB_ICONERROR);
+        return 1;
+    }
+    db_seed_compound_library();
+    db_seed_inventory();
+
+    /* Register main window class */
+    ZeroMemory(&wc, sizeof(wc));
+    wc.cbSize        = sizeof(WNDCLASSEX);
+    wc.style         = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc   = MainWndProc;
+    wc.hInstance     = hInstance;
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.lpszClassName = "SodaFormulatorMain";
+    RegisterClassEx(&wc);
+
+    /* Create main window */
+    hWnd = CreateWindowEx(0,
+        "SodaFormulatorMain",
+        "Soda Formulator v0.1.0",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1100, 700,
+        NULL, NULL, hInstance, NULL);
+
+    if (!hWnd) {
+        MessageBox(NULL, "Failed to create main window", "Error", MB_ICONERROR);
+        db_close();
+        return 1;
+    }
+
+    ShowWindow(hWnd, nCmdShow);
+    UpdateWindow(hWnd);
+
+    /* Message loop */
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    db_close();
+    return (int)msg.wParam;
 }

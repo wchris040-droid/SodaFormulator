@@ -5,6 +5,7 @@
 #include "compound.h"
 #include "tasting.h"
 #include "batch.h"
+#include "sqlite3.h"
 
 /*
  * Opens (or creates) the SQLite database at db_path.
@@ -171,5 +172,11 @@ int db_deduct_inventory(const BatchRun* br);
  * Returns 0 on success, negative on DB error.
  */
 int db_list_inventory(void);
+
+/*
+ * Returns the raw SQLite database handle.
+ * Used by panel code that queries directly.
+ */
+sqlite3* db_get_handle(void);
 
 #endif
