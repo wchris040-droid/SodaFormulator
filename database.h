@@ -3,6 +3,7 @@
 
 #include "formulation.h"
 #include "compound.h"
+#include "tasting.h"
 
 /*
  * Opens (or creates) the SQLite database at db_path.
@@ -80,5 +81,33 @@ int db_list_compounds(void);
  * Returns count of violations (0 = all clear).
  */
 int db_validate_formulation(const Formulation* f);
+
+/* -------------------------------------------------------------------------
+   Phase 3: Tasting Sessions
+   ------------------------------------------------------------------------- */
+
+/*
+ * Save a tasting session linked to flavor_code v major.minor.patch.
+ * Looks up the formulation_id internally.
+ * Fills ts->id with the new row's primary key on success.
+ * Returns 0 on success, 1 if the formulation version is not found,
+ * negative on DB error.
+ */
+int db_save_tasting(const char* flavor_code,
+                    int major, int minor, int patch,
+                    TastingSession* ts);
+
+/*
+ * Print all tasting sessions for every version of flavor_code,
+ * ordered by tasted_at ascending.
+ * Returns 0 on success, negative on DB error.
+ */
+int db_list_tastings_for_flavor(const char* flavor_code);
+
+/*
+ * Print aggregate average scores for all sessions of flavor_code.
+ * Returns 0 on success, negative on DB error.
+ */
+int db_get_avg_scores(const char* flavor_code);
 
 #endif

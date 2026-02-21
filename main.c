@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "compound.h"
 #include "formulation.h"
+#include "tasting.h"
 #include "version.h"
 #include "database.h"
 
@@ -19,8 +21,8 @@ int main() {
     add_compound(cinroll, "Eugenol", 5.0);
     add_compound(cinroll, "Ethyl maltol", 15.0);
     
-    cinroll->target_ph = 3.2;
-    cinroll->target_brix = 12.0;
+    cinroll->target_ph = 3.2f;
+    cinroll->target_brix = 12.0f;
     
     print_formulation(cinroll);
     
@@ -33,8 +35,8 @@ int main() {
     add_compound(cherry, "Delta-decalactone", 5.0);
     add_compound(cherry, "Ethyl cinnamate", 2.0);
     
-    cherry->target_ph = 3.3;
-    cherry->target_brix = 13.0;
+    cherry->target_ph = 3.3f;
+    cherry->target_brix = 13.0f;
     
     print_formulation(cherry);
     
@@ -109,6 +111,73 @@ int main() {
             if (db_load_latest("CINROLL", &loaded) == 0)
                 print_formulation(&loaded);
         }
+
+        // Tasting session demo
+        printf("\n=== Tasting Session Demo ===\n");
+        {
+            TastingSession ts;
+
+            // Session 1: CINROLL v1.0.0 — evaluator A
+            tasting_create(&ts, 0, "NFide");
+            ts.overall_score   = 7.5f;
+            ts.aroma_score     = 8.0f;
+            ts.flavor_score    = 7.0f;
+            ts.mouthfeel_score = 7.5f;
+            ts.finish_score    = 7.0f;
+            ts.sweetness_score = 6.5f;
+            strncpy(ts.notes,
+                "Cinnamon presence strong on entry, vanillin rounds out mid-palate. "
+                "Finish is slightly astringent. Reduce cinnamaldehyde 5 ppm next patch.",
+                MAX_TASTING_NOTES - 1);
+            db_save_tasting("CINROLL", 1, 0, 0, &ts);
+            tasting_print(&ts);
+
+            // Session 2: CINROLL v1.0.0 — evaluator B
+            tasting_create(&ts, 0, "Panelist_02");
+            ts.overall_score   = 8.0f;
+            ts.aroma_score     = 8.5f;
+            ts.flavor_score    = 7.5f;
+            ts.mouthfeel_score = 8.0f;
+            ts.finish_score    = 7.5f;
+            ts.sweetness_score = 7.0f;
+            strncpy(ts.notes,
+                "Excellent bakery note. Diacetyl butter detectable but not over-threshold. "
+                "Very balanced for a prototype.",
+                MAX_TASTING_NOTES - 1);
+            db_save_tasting("CINROLL", 1, 0, 0, &ts);
+
+            // Session 3: CINROLL v1.1.0 — evaluator A (after sotolon addition)
+            tasting_create(&ts, 0, "NFide");
+            ts.overall_score   = 8.5f;
+            ts.aroma_score     = 9.0f;
+            ts.flavor_score    = 8.0f;
+            ts.mouthfeel_score = 8.0f;
+            ts.finish_score    = 8.5f;
+            ts.sweetness_score = 7.0f;
+            strncpy(ts.notes,
+                "Sotolon addition lifts caramel depth without overwhelming. "
+                "Finish is significantly improved. Recommend proceeding to batch scale.",
+                MAX_TASTING_NOTES - 1);
+            db_save_tasting("CINROLL", 1, 1, 0, &ts);
+
+            // Session 4: CHERRYCREAM v1.0.0 — evaluator A
+            tasting_create(&ts, 0, "NFide");
+            ts.overall_score   = 8.0f;
+            ts.aroma_score     = 8.5f;
+            ts.flavor_score    = 8.0f;
+            ts.mouthfeel_score = 7.5f;
+            ts.finish_score    = 7.5f;
+            ts.sweetness_score = 8.0f;
+            strncpy(ts.notes,
+                "Benzaldehyde cherry note clean and true. Delta-decalactone adds good "
+                "creaminess. Ethyl cinnamate spice element is subtle but effective.",
+                MAX_TASTING_NOTES - 1);
+            db_save_tasting("CHERRYCREAM", 1, 0, 0, &ts);
+        }
+
+        // List all sessions + averages for CINROLL
+        db_list_tastings_for_flavor("CINROLL");
+        db_get_avg_scores("CINROLL");
 
         db_close();
     }

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "compound.h"
+#include "tasting.h"
 #include "database.h"
 #include "sqlite3.h"
 
@@ -89,6 +90,24 @@ int db_open(const char* db_path)
         "    storage_temp         TEXT,"
         "    requires_solubilizer INTEGER NOT NULL DEFAULT 0,"
         "    requires_inert_atm   INTEGER NOT NULL DEFAULT 0"
+        ");"
+    );
+    if (rc != SQLITE_OK) return rc;
+
+    /* tasting_sessions — one row per sensory evaluation */
+    rc = db_exec_simple(
+        "CREATE TABLE IF NOT EXISTS tasting_sessions ("
+        "    id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    formulation_id  INTEGER NOT NULL REFERENCES formulations(id),"
+        "    tasted_at       TEXT    NOT NULL DEFAULT (DATETIME('now', 'localtime')),"
+        "    taster          TEXT    NOT NULL DEFAULT 'unknown',"
+        "    overall_score   REAL    NOT NULL,"
+        "    aroma_score     REAL,"
+        "    flavor_score    REAL,"
+        "    mouthfeel_score REAL,"
+        "    finish_score    REAL,"
+        "    sweetness_score REAL,"
+        "    notes           TEXT"
         ");"
     );
     if (rc != SQLITE_OK) return rc;
@@ -780,4 +799,236 @@ int db_validate_formulation(const Formulation* f)
         }
     }
     return violations;
+}
+
+/* =========================================================================
+   Private helper: bind a score that may be -1 (not scored) → NULL.
+   ========================================================================= */
+static void bind_score(sqlite3_stmt* stmt, int col, float score)
+{
+    if (score < 0.0f)
+        sqlite3_bind_null(stmt, col);
+    else
+        sqlite3_bind_double(stmt, col, (double)score);
+}
+
+/* =========================================================================
+   db_save_tasting
+   ========================================================================= */
+int db_save_tasting(const char* flavor_code,
+                    int major, int minor, int patch,
+                    TastingSession* ts)
+{
+    sqlite3_stmt* stmt = NULL;
+    sqlite3_int64 formulation_id = 0;
+    int rc;
+
+    /* Look up the formulation's DB id */
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT id FROM formulations "
+        "WHERE flavor_code = ? "
+        "  AND ver_major = ? AND ver_minor = ? AND ver_patch = ?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_text(stmt, 1, flavor_code, -1, SQLITE_STATIC);
+    sqlite3_bind_int (stmt, 2, major);
+    sqlite3_bind_int (stmt, 3, minor);
+    sqlite3_bind_int (stmt, 4, patch);
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        fprintf(stderr, "Tasting: formulation %s v%d.%d.%d not found.\n",
+                flavor_code, major, minor, patch);
+        return 1;
+    }
+    if (rc != SQLITE_ROW) {
+        fprintf(stderr, "Step error: %s\n", sqlite3_errmsg(g_db));
+        sqlite3_finalize(stmt);
+        return rc;
+    }
+    formulation_id = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+
+    /* Insert tasting session */
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT INTO tasting_sessions "
+        "(formulation_id, taster, overall_score, aroma_score, flavor_score, "
+        " mouthfeel_score, finish_score, sweetness_score, notes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_int64(stmt, 1, formulation_id);
+    sqlite3_bind_text (stmt, 2, ts->taster[0] ? ts->taster : "unknown", -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 3, (double)ts->overall_score);
+    bind_score(stmt, 4, ts->aroma_score);
+    bind_score(stmt, 5, ts->flavor_score);
+    bind_score(stmt, 6, ts->mouthfeel_score);
+    bind_score(stmt, 7, ts->finish_score);
+    bind_score(stmt, 8, ts->sweetness_score);
+    if (ts->notes[0])
+        sqlite3_bind_text(stmt, 9, ts->notes, -1, SQLITE_STATIC);
+    else
+        sqlite3_bind_null(stmt, 9);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "Tasting insert error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    ts->id             = (int)sqlite3_last_insert_rowid(g_db);
+    ts->formulation_id = (int)formulation_id;
+
+    printf("Tasting saved: %s v%d.%d.%d  taster=%s  overall=%.1f\n",
+           flavor_code, major, minor, patch,
+           ts->taster[0] ? ts->taster : "unknown",
+           ts->overall_score);
+    return 0;
+}
+
+/* =========================================================================
+   db_list_tastings_for_flavor
+   ========================================================================= */
+int db_list_tastings_for_flavor(const char* flavor_code)
+{
+    sqlite3_stmt* stmt = NULL;
+    int rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT t.id, f.ver_major, f.ver_minor, f.ver_patch, "
+        "       t.taster, t.tasted_at, "
+        "       t.overall_score, t.aroma_score, t.flavor_score, "
+        "       t.mouthfeel_score, t.finish_score, t.sweetness_score, "
+        "       t.notes "
+        "FROM tasting_sessions t "
+        "JOIN formulations f ON f.id = t.formulation_id "
+        "WHERE f.flavor_code = ? "
+        "ORDER BY t.tasted_at ASC;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_text(stmt, 1, flavor_code, -1, SQLITE_STATIC);
+
+    printf("\n--- Tasting Sessions: %s ---\n", flavor_code);
+    printf("%-4s | %-7s | %-16s | %-20s | %-5s | %-5s | %-5s | %-5s | %-5s | %-5s | Notes\n",
+           "ID", "Version", "Taster", "Tasted At",
+           "Ovrl", "Arom", "Flav", "Mfeel", "Fin", "Sweet");
+    printf("-----+----------+------------------+----------------------+-------+-------+-------+-------+-------+-------+-----------\n");
+
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        int   sid    = sqlite3_column_int(stmt, 0);
+        int   vmaj   = sqlite3_column_int(stmt, 1);
+        int   vmin   = sqlite3_column_int(stmt, 2);
+        int   vpat   = sqlite3_column_int(stmt, 3);
+        const char* taster  = (const char*)sqlite3_column_text(stmt, 4);
+        const char* tat     = (const char*)sqlite3_column_text(stmt, 5);
+        double ovrl  = sqlite3_column_double(stmt, 6);
+        char arom[6], flav[6], mf[6], fin[6], sw[6];
+
+        /* Format optional scores */
+#define FMT_OPT(buf, col) \
+        if (sqlite3_column_type(stmt, (col)) == SQLITE_NULL) \
+            strncpy((buf), "  --", 5); \
+        else \
+            snprintf((buf), 6, "%5.1f", sqlite3_column_double(stmt, (col)))
+
+        FMT_OPT(arom, 7);
+        FMT_OPT(flav, 8);
+        FMT_OPT(mf,   9);
+        FMT_OPT(fin, 10);
+        FMT_OPT(sw,  11);
+#undef FMT_OPT
+
+        const char* notes = sqlite3_column_type(stmt, 12) == SQLITE_NULL
+                          ? ""
+                          : (const char*)sqlite3_column_text(stmt, 12);
+
+        char version[10];
+        snprintf(version, sizeof(version), "%d.%d.%d", vmaj, vmin, vpat);
+
+        printf("%-4d | %-7s | %-16s | %-20s | %5.1f | %s | %s | %s | %s | %s | %s\n",
+               sid, version,
+               taster ? taster : "unknown",
+               tat ? tat : "",
+               ovrl, arom, flav, mf, fin, sw,
+               notes);
+    }
+
+    sqlite3_finalize(stmt);
+    printf("\n");
+    return (rc == SQLITE_DONE) ? 0 : rc;
+}
+
+/* =========================================================================
+   db_get_avg_scores
+   ========================================================================= */
+int db_get_avg_scores(const char* flavor_code)
+{
+    sqlite3_stmt* stmt = NULL;
+    int rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT COUNT(*), "
+        "       AVG(t.overall_score), "
+        "       AVG(t.aroma_score), "
+        "       AVG(t.flavor_score), "
+        "       AVG(t.mouthfeel_score), "
+        "       AVG(t.finish_score), "
+        "       AVG(t.sweetness_score) "
+        "FROM tasting_sessions t "
+        "JOIN formulations f ON f.id = t.formulation_id "
+        "WHERE f.flavor_code = ?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_text(stmt, 1, flavor_code, -1, SQLITE_STATIC);
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        int    n    = sqlite3_column_int(stmt, 0);
+        double ovrl = sqlite3_column_double(stmt, 1);
+
+        printf("\n--- Avg Scores: %s  (%d session%s) ---\n",
+               flavor_code, n, n == 1 ? "" : "s");
+
+        if (n == 0) {
+            printf("  No tasting sessions recorded.\n");
+        } else {
+#define PRINT_AVG(label, col) \
+            if (sqlite3_column_type(stmt, (col)) == SQLITE_NULL) \
+                printf("  %-18s  --\n", (label)); \
+            else \
+                printf("  %-18s  %.2f / 10\n", (label), sqlite3_column_double(stmt, (col)))
+
+            printf("  %-18s  %.2f / 10\n", "Overall", ovrl);
+            PRINT_AVG("Aroma",     2);
+            PRINT_AVG("Flavor",    3);
+            PRINT_AVG("Mouthfeel", 4);
+            PRINT_AVG("Finish",    5);
+            PRINT_AVG("Sweetness", 6);
+#undef PRINT_AVG
+        }
+        printf("\n");
+    }
+
+    sqlite3_finalize(stmt);
+    return (rc == SQLITE_ROW || rc == SQLITE_DONE) ? 0 : rc;
 }
