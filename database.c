@@ -105,6 +105,14 @@ int db_open(const char* db_path)
         "ALTER TABLE compound_library ADD COLUMN cost_per_gram REAL NOT NULL DEFAULT 0;",
         NULL, NULL, NULL);  /* ignore error — already exists on fresh DB */
 
+    /* flavor_descriptors and odor_threshold_ppm — added in Phase 5. */
+    sqlite3_exec(g_db,
+        "ALTER TABLE compound_library ADD COLUMN flavor_descriptors TEXT;",
+        NULL, NULL, NULL);
+    sqlite3_exec(g_db,
+        "ALTER TABLE compound_library ADD COLUMN odor_threshold_ppm REAL;",
+        NULL, NULL, NULL);
+
     /* tasting_sessions — one row per sensory evaluation */
     rc = db_exec_simple(
         "CREATE TABLE IF NOT EXISTS tasting_sessions ("
@@ -157,6 +165,21 @@ int db_open(const char* db_path)
         "    stock_grams             REAL    NOT NULL DEFAULT 0,"
         "    reorder_threshold_grams REAL    NOT NULL DEFAULT 10,"
         "    last_updated            TEXT    NOT NULL DEFAULT (DATETIME('now', 'localtime'))"
+        ");"
+    );
+    if (rc != SQLITE_OK) return rc;
+
+    /* regulatory_limits — override max_use_ppm without rebuild */
+    rc = db_exec_simple(
+        "CREATE TABLE IF NOT EXISTS regulatory_limits ("
+        "    id             INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    compound_name  TEXT NOT NULL,"
+        "    source         TEXT NOT NULL,"
+        "    max_use_ppm    REAL NOT NULL,"
+        "    effective_date TEXT NOT NULL,"
+        "    notes          TEXT,"
+        "    added_at       TEXT NOT NULL"
+        "             DEFAULT (DATETIME('now','localtime'))"
         ");"
     );
     if (rc != SQLITE_OK) return rc;
@@ -569,22 +592,24 @@ int db_seed_compound_library(void)
         int         requires_solubilizer;
         int         requires_inert_atm;
         float       cost_per_gram;
+        const char* flavor_descriptors;
+        float       odor_threshold_ppm;
     } compounds[] = {
-        { "Benzaldehyde",        "100-52-7",    2127, 100.0f,  20.0f,  80.0f, 106.12f, 3000.0f, 2.5f, 5.0f, "almond cherry maraschino",   "RT",   0, 0, 0.05f  },
-        { "Benzyl acetate",      "140-11-4",    2135,  50.0f,   2.0f,  15.0f, 150.17f, 5900.0f, 3.0f, 5.0f, "jasmine fruity sweet",       "RT",   0, 0, 0.08f  },
-        { "Butyric acid",        "107-92-6",    2221,   1.0f,   0.1f,   0.5f,  88.11f,    0.0f, 2.5f, 5.0f, "butter cheese rancid",       "RT",   0, 0, 0.10f  },
-        { "Cinnamaldehyde",      "104-55-2",    2286,  50.0f,  10.0f,  40.0f, 132.16f, 1400.0f, 2.5f, 4.5f, "cinnamon spicy warm",        "RT",   0, 0, 0.15f  },
-        { "Cyclotene",           "80-71-7",     2700,  10.0f,   1.0f,   5.0f, 112.13f, 5000.0f, 2.5f, 5.0f, "maple caramel roasted",      "RT",   0, 0, 2.00f  },
-        { "Delta-decalactone",   "705-86-2",    2361,  20.0f,   1.0f,  10.0f, 170.25f,  200.0f, 3.0f, 5.5f, "peach cream coconut",        "RT",   1, 0, 1.50f  },
-        { "Diacetyl",            "431-03-8",    2370,   5.0f,   0.5f,   3.0f,  86.09f,    0.0f, 2.0f, 5.0f, "butter cream",               "2-8C", 0, 0, 0.20f  },
-        { "Ethyl cinnamate",     "103-36-6",    2430,  10.0f,   1.0f,   5.0f, 176.21f,  500.0f, 3.0f, 5.0f, "fruity cinnamon sweet",      "RT",   1, 0, 1.00f  },
-        { "Ethyl maltol",        "4940-11-8",   3487, 150.0f,  10.0f,  80.0f, 140.14f,55000.0f, 2.5f, 5.0f, "cotton candy sweet",         "RT",   0, 0, 0.10f  },
-        { "Eugenol",             "97-53-0",     2467,  20.0f,   2.0f,  10.0f, 164.20f, 2400.0f, 3.0f, 7.0f, "clove spicy warm",           "RT",   1, 0, 0.08f  },
-        { "Furaneol",            "3658-77-3",   3174,   5.0f,   0.1f,   1.0f, 128.13f,50000.0f, 2.5f, 4.5f, "caramel strawberry sweet",   "2-8C", 0, 0, 5.00f  },
-        { "Gamma-undecalactone", "104-67-6",    3091,  20.0f,   1.0f,  10.0f, 184.28f,  100.0f, 3.0f, 5.5f, "peach creamy fruity",        "RT",   1, 0, 2.00f  },
-        { "Maltol",              "118-71-8",    2656, 200.0f,  20.0f, 100.0f, 126.11f, 8000.0f, 2.5f, 5.0f, "sweet caramel cotton candy", "RT",   0, 0, 0.15f  },
-        { "Sotolon",             "28664-35-9",  3634,   0.5f,  0.01f,   0.3f, 128.15f,50000.0f, 2.5f, 5.0f, "maple caramel fenugreek",    "2-8C", 0, 0, 10.00f },
-        { "Vanillin",            "121-33-5",    3107, 150.0f,  20.0f, 100.0f, 152.15f,10000.0f, 2.0f, 5.0f, "vanilla sweet creamy",       "RT",   0, 0, 0.05f  },
+        { "Benzaldehyde",        "100-52-7",    2127, 100.0f,  20.0f,  80.0f, 106.12f, 3000.0f, 2.5f, 5.0f, "almond cherry maraschino",   "RT",   0, 0, 0.05f,  "bitter almond cherry sweet",       0.35f     },
+        { "Benzyl acetate",      "140-11-4",    2135,  50.0f,   2.0f,  15.0f, 150.17f, 5900.0f, 3.0f, 5.0f, "jasmine fruity sweet",       "RT",   0, 0, 0.08f,  "fruity floral jasmine sweet",      0.15f     },
+        { "Butyric acid",        "107-92-6",    2221,   1.0f,   0.1f,   0.5f,  88.11f,    0.0f, 2.5f, 5.0f, "butter cheese rancid",       "RT",   0, 0, 0.10f,  "butter cheese rancid sour",        0.24f     },
+        { "Cinnamaldehyde",      "104-55-2",    2286,  50.0f,  10.0f,  40.0f, 132.16f, 1400.0f, 2.5f, 4.5f, "cinnamon spicy warm",        "RT",   0, 0, 0.15f,  "cinnamon spicy sweet warm",        0.015f    },
+        { "Cyclotene",           "80-71-7",     2700,  10.0f,   1.0f,   5.0f, 112.13f, 5000.0f, 2.5f, 5.0f, "maple caramel roasted",      "RT",   0, 0, 2.00f,  "maple caramel smoky sweet",        0.1f      },
+        { "Delta-decalactone",   "705-86-2",    2361,  20.0f,   1.0f,  10.0f, 170.25f,  200.0f, 3.0f, 5.5f, "peach cream coconut",        "RT",   1, 0, 1.50f,  "peach coconut creamy sweet",       0.011f    },
+        { "Diacetyl",            "431-03-8",    2370,   5.0f,   0.5f,   3.0f,  86.09f,    0.0f, 2.0f, 5.0f, "butter cream",               "2-8C", 0, 0, 0.20f,  "butter cream dairy",               0.005f    },
+        { "Ethyl cinnamate",     "103-36-6",    2430,  10.0f,   1.0f,   5.0f, 176.21f,  500.0f, 3.0f, 5.0f, "fruity cinnamon sweet",      "RT",   1, 0, 1.00f,  "cinnamon fruity sweet balsamic",   1.1f      },
+        { "Ethyl maltol",        "4940-11-8",   3487, 150.0f,  10.0f,  80.0f, 140.14f,55000.0f, 2.5f, 5.0f, "cotton candy sweet",         "RT",   0, 0, 0.10f,  "sweet cotton candy fruity",        0.086f    },
+        { "Eugenol",             "97-53-0",     2467,  20.0f,   2.0f,  10.0f, 164.20f, 2400.0f, 3.0f, 7.0f, "clove spicy warm",           "RT",   1, 0, 0.08f,  "clove spicy warm medicinal",       0.006f    },
+        { "Furaneol",            "3658-77-3",   3174,   5.0f,   0.1f,   1.0f, 128.13f,50000.0f, 2.5f, 4.5f, "caramel strawberry sweet",   "2-8C", 0, 0, 5.00f,  "caramel strawberry sweet fruity",  0.000025f },
+        { "Gamma-undecalactone", "104-67-6",    3091,  20.0f,   1.0f,  10.0f, 184.28f,  100.0f, 3.0f, 5.5f, "peach creamy fruity",        "RT",   1, 0, 2.00f,  "peach creamy coconut fruity",      0.005f    },
+        { "Maltol",              "118-71-8",    2656, 200.0f,  20.0f, 100.0f, 126.11f, 8000.0f, 2.5f, 5.0f, "sweet caramel cotton candy", "RT",   0, 0, 0.15f,  "sweet caramel jam fruity",         1.7f      },
+        { "Sotolon",             "28664-35-9",  3634,   0.5f,  0.01f,   0.3f, 128.15f,50000.0f, 2.5f, 5.0f, "maple caramel fenugreek",    "2-8C", 0, 0, 10.00f, "maple caramel fenugreek sweet",    0.0015f   },
+        { "Vanillin",            "121-33-5",    3107, 150.0f,  20.0f, 100.0f, 152.15f,10000.0f, 2.0f, 5.0f, "vanilla sweet creamy",       "RT",   0, 0, 0.05f,  "vanilla sweet creamy",             0.02f     },
     };
     static const int NCOMPOUNDS = 15;
 
@@ -651,6 +676,26 @@ int db_seed_compound_library(void)
             sqlite3_reset(stmt);
             sqlite3_bind_double(stmt, 1, (double)compounds[i].cost_per_gram);
             sqlite3_bind_text  (stmt, 2, compounds[i].compound_name, -1, SQLITE_STATIC);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+
+    /* Set flavor_descriptors and odor_threshold_ppm where not yet populated.
+       Idempotent: skips rows that already have data. */
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE compound_library "
+        "SET flavor_descriptors = ?, odor_threshold_ppm = ? "
+        "WHERE compound_name = ? "
+        "  AND (flavor_descriptors IS NULL OR flavor_descriptors = '');",
+        -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        for (i = 0; i < NCOMPOUNDS; i++) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_text  (stmt, 1, compounds[i].flavor_descriptors, -1, SQLITE_STATIC);
+            sqlite3_bind_double(stmt, 2, (double)compounds[i].odor_threshold_ppm);
+            sqlite3_bind_text  (stmt, 3, compounds[i].compound_name, -1, SQLITE_STATIC);
             sqlite3_step(stmt);
         }
         sqlite3_finalize(stmt);
@@ -730,7 +775,8 @@ int db_get_compound_by_name(const char* name, CompoundInfo* c)
         "SELECT id, compound_name, cas_number, fema_number, max_use_ppm, "
         "       rec_min_ppm, rec_max_ppm, molecular_weight, water_solubility, "
         "       ph_stable_min, ph_stable_max, odor_profile, storage_temp, "
-        "       requires_solubilizer, requires_inert_atm, cost_per_gram "
+        "       requires_solubilizer, requires_inert_atm, cost_per_gram, "
+        "       flavor_descriptors, odor_threshold_ppm "
         "FROM compound_library WHERE compound_name = ?;",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -777,6 +823,15 @@ int db_get_compound_by_name(const char* name, CompoundInfo* c)
     c->requires_solubilizer = sqlite3_column_int   (stmt, 13);
     c->requires_inert_atm   = sqlite3_column_int   (stmt, 14);
     c->cost_per_gram        = (float)sqlite3_column_double(stmt, 15);
+
+    if (sqlite3_column_type(stmt, 16) != SQLITE_NULL) {
+        strncpy(c->flavor_descriptors,
+                (const char*)sqlite3_column_text(stmt, 16), 255);
+        c->flavor_descriptors[255] = '\0';
+    } else {
+        c->flavor_descriptors[0] = '\0';
+    }
+    c->odor_threshold_ppm = (float)sqlite3_column_double(stmt, 17);
 
     sqlite3_finalize(stmt);
     return 0;
@@ -887,21 +942,23 @@ int db_set_compound_cost(const char* compound_name, float cost_per_gram)
    ========================================================================= */
 int db_validate_formulation(const Formulation* f)
 {
-    CompoundInfo info;
     int violations = 0;
     int i;
-    int result;
 
     for (i = 0; i < f->compound_count; i++) {
-        result = db_get_compound_by_name(f->compounds[i].compound_name, &info);
-        if (result == 0) {
-            if (compound_check_limit(&info, f->compounds[i].concentration_ppm) == 1) {
-                fprintf(stderr, "  [SAFETY WARNING] %s: %.2f ppm exceeds max %.2f ppm\n",
-                    f->compounds[i].compound_name,
-                    f->compounds[i].concentration_ppm,
-                    info.max_use_ppm);
-                violations++;
-            }
+        float active_max = 0.0f;
+        int   src = db_get_active_limit(f->compounds[i].compound_name,
+                                        &active_max);
+        if (src >= 0 && active_max > 0.0f &&
+            f->compounds[i].concentration_ppm > active_max)
+        {
+            fprintf(stderr,
+                "  [SAFETY WARNING] %s: %.2f ppm exceeds %s limit %.2f ppm\n",
+                f->compounds[i].compound_name,
+                f->compounds[i].concentration_ppm,
+                src == 0 ? "regulatory override" : "library",
+                active_max);
+            violations++;
         }
     }
     return violations;
@@ -1557,6 +1614,88 @@ int db_deduct_inventory(const BatchRun* br)
 
     sqlite3_finalize(stmt);
     printf("Inventory updated after batch %s.\n", br->batch_number);
+    return 0;
+}
+
+/* =========================================================================
+   db_get_active_limit
+   Returns 0 if regulatory override found, 1 if library fallback,
+   negative on DB error.
+   ========================================================================= */
+int db_get_active_limit(const char* compound_name, float* out_max_ppm)
+{
+    sqlite3_stmt* stmt = NULL;
+    int rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT max_use_ppm FROM regulatory_limits "
+        "WHERE compound_name = ? "
+        "ORDER BY effective_date DESC, id DESC LIMIT 1;",
+        -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, compound_name, -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            *out_max_ppm = (float)sqlite3_column_double(stmt, 0);
+            sqlite3_finalize(stmt);
+            return 0;  /* regulatory override found */
+        }
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+
+    /* Fall back to compound_library */
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT max_use_ppm FROM compound_library WHERE compound_name = ?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+    sqlite3_bind_text(stmt, 1, compound_name, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        *out_max_ppm = (float)sqlite3_column_double(stmt, 0);
+        sqlite3_finalize(stmt);
+        return 1;  /* library fallback */
+    }
+    sqlite3_finalize(stmt);
+    return (rc == SQLITE_DONE) ? 1 : rc;
+}
+
+/* =========================================================================
+   db_add_regulatory_limit
+   ========================================================================= */
+int db_add_regulatory_limit(const char* compound_name, const char* source,
+                            float max_use_ppm, const char* effective_date,
+                            const char* notes)
+{
+    sqlite3_stmt* stmt = NULL;
+    int rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT INTO regulatory_limits "
+        "(compound_name, source, max_use_ppm, effective_date, notes) "
+        "VALUES (?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
+        return rc;
+    }
+
+    sqlite3_bind_text  (stmt, 1, compound_name,   -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 2, source,           -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 3, (double)max_use_ppm);
+    sqlite3_bind_text  (stmt, 4, effective_date,   -1, SQLITE_STATIC);
+    if (notes && notes[0])
+        sqlite3_bind_text(stmt, 5, notes, -1, SQLITE_STATIC);
+    else
+        sqlite3_bind_null(stmt, 5);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "Regulatory limit insert error: %s\n",
+                sqlite3_errmsg(g_db));
+        return rc;
+    }
     return 0;
 }
 

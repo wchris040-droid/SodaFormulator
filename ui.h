@@ -11,6 +11,7 @@ extern HINSTANCE g_hInst;
 #define NAV_TASTING       2
 #define NAV_BATCH         3
 #define NAV_INVENTORY     4
+#define NAV_REGULATORY    5
 
 /* Main layout constants */
 #define NAV_WIDTH         160
@@ -35,6 +36,7 @@ extern HINSTANCE g_hInst;
 #define IDC_BTN_UPDATE_STOCK  1013
 #define IDC_BTN_UPDATE_COST   1014
 #define IDC_BTN_CHECK         1015
+#define IDC_BTN_ADD_LIMIT     1016
 
 /* Panel child control IDs */
 #define IDC_LISTVIEW          2000
@@ -81,5 +83,8 @@ void Panel_Batch_Refresh(void);
 
 HWND Panel_Inventory_Create(HWND hParent);
 void Panel_Inventory_Refresh(void);
+
+HWND Panel_Regulatory_Create(HWND hParent);
+void Panel_Regulatory_Refresh(void);
 
 #endif /* UI_H */

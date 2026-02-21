@@ -179,4 +179,30 @@ int db_list_inventory(void);
  */
 sqlite3* db_get_handle(void);
 
+/* -------------------------------------------------------------------------
+   Regulatory Limits
+   ------------------------------------------------------------------------- */
+
+/*
+ * Insert a new regulatory override for compound_name.
+ * effective_date must be "YYYY-MM-DD". notes may be NULL or empty.
+ * Returns 0 on success, negative on DB error.
+ */
+int db_add_regulatory_limit(const char* compound_name,
+                            const char* source,
+                            float       max_use_ppm,
+                            const char* effective_date,
+                            const char* notes);
+
+/*
+ * Get the active maximum use ppm for compound_name.
+ * Checks regulatory_limits first (most recent effective_date/id wins).
+ * Falls back to compound_library if no override exists.
+ * Returns  0 if an override was found,
+ *          1 if falling back to compound_library,
+ *         negative on DB error.
+ * out_max_ppm is set on return codes 0 and 1.
+ */
+int db_get_active_limit(const char* compound_name, float* out_max_ppm);
+
 #endif
