@@ -20,6 +20,7 @@ typedef struct {
     float cost_per_gram;         /* USD/g; 0.0 = not set */
     char  flavor_descriptors[256]; /* retronasal/taste keywords */
     float odor_threshold_ppm;      /* detection threshold in water (ppm) */
+    char  applications[128];       /* pipe-separated: "beverages|baked goods" */
 } CompoundInfo;
 
 /* Check ppm against max_use_ppm.

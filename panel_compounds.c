@@ -28,6 +28,7 @@ static HWND g_hDetailPane = NULL;
 static HWND g_hBtnPopOut  = NULL;
 static HWND g_hSearchEdit = NULL;
 static HWND g_hSolubCombo = NULL;
+static HWND g_hAppCombo   = NULL;
 
 static CompoundInfo g_selectedCompound;
 static BOOL         g_hasSelection = FALSE;
@@ -143,6 +144,13 @@ static void DrawCompoundDetail(HDC hdc, const RECT* prc, const CompoundInfo* c)
         DrawText(hdc, buf, -1, &tr_, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX); \
         y += (tr_.bottom - tr_.top) + 3; \
     } while(0)
+
+    /* Applications */
+    if (c->applications[0]) {
+        SetTextColor(hdc, RGB(0, 110, 100));
+        DRAW_FIELD("Apps: ", c->applications);
+        SetTextColor(hdc, RGB(30, 30, 30));
+    }
 
     /* Odor profile */
     DRAW_FIELD("Odor: ", c->odor_profile[0] ? c->odor_profile : "(none)");
@@ -554,11 +562,30 @@ static LRESULT CALLBACK CompPanelWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
             346, 5, 90, 26, hWnd,
             (HMENU)(INT_PTR)IDC_BTN_EDIT_COST, g_hInst, NULL);
 
+        /* App filter */
+        CreateWindowEx(0, "STATIC", "App:",
+            WS_CHILD | WS_VISIBLE,
+            444, 10, 30, 18, hWnd, NULL, g_hInst, NULL);
+        g_hAppCombo = CreateWindowEx(0, "COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+            476, 7, 120, 200, hWnd,
+            (HMENU)(INT_PTR)IDC_APP_COMBO, g_hInst, NULL);
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"All");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Beverages");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Alcoholic");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Baked Goods");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Dairy");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Meat");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Confections");
+        SendMessage(g_hAppCombo, CB_ADDSTRING, 0, (LPARAM)"Savory");
+        SendMessage(g_hAppCombo, CB_SETCURSEL, 0, 0);
+
         /* Apply fonts */
         if (g_hFontNormal) {
             SendMessage(g_hSearchEdit,  WM_SETFONT, (WPARAM)g_hFontNormal, FALSE);
             SendMessage(g_hSolubCombo,  WM_SETFONT, (WPARAM)g_hFontNormal, FALSE);
             SendMessage(g_hBtnEditCost, WM_SETFONT, (WPARAM)g_hFontNormal, FALSE);
+            SendMessage(g_hAppCombo,    WM_SETFONT, (WPARAM)g_hFontNormal, FALSE);
         }
 
         /* ListView */
@@ -624,6 +651,9 @@ static LRESULT CALLBACK CompPanelWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
             if (HIWORD(wParam) == EN_CHANGE) Panel_Compounds_Refresh();
             break;
         case IDC_SOLUB_COMBO:
+            if (HIWORD(wParam) == CBN_SELCHANGE) Panel_Compounds_Refresh();
+            break;
+        case IDC_APP_COMBO:
             if (HIWORD(wParam) == CBN_SELCHANGE) Panel_Compounds_Refresh();
             break;
         case IDC_BTN_POPOUT:
@@ -725,95 +755,80 @@ HWND Panel_Compounds_Create(HWND hParent)
 }
 
 /* =========================================================================
-   Panel_Compounds_Refresh — filtered SQL with search and solubilizer filter
+   Panel_Compounds_Refresh — single parameterized SQL with search, app, and
+   solubilizer filters.
    ========================================================================= */
 void Panel_Compounds_Refresh(void)
 {
+    /* App token map: combobox index → pipe-search token */
+    static const char* app_tokens[] = {
+        "",            /* 0 = All */
+        "beverages",   /* 1 */
+        "alcoholic",   /* 2 */
+        "baked goods", /* 3 */
+        "dairy",       /* 4 */
+        "meat",        /* 5 */
+        "confections", /* 6 */
+        "savory"       /* 7 */
+    };
+
     sqlite3*      db        = db_get_handle();
     sqlite3_stmt* stmt      = NULL;
     int           row       = 0;
     char          buf[64];
     char          search[256];
-    char          like_pat[260];
+    char          like_search[260]; /* for name/odor/flavor */
+    char          like_app[140];    /* for applications column */
     int           solub_sel;
-    int           has_search;
-    int           want_solub;
+    int           app_sel;
+    int           solub_sentinel;   /* -1=all, 0/1=filter */
 
     if (!g_hListView || !db) return;
 
-    /* Read search text and build LIKE pattern */
+    /* Read search text */
     search[0] = '\0';
     if (g_hSearchEdit) GetWindowText(g_hSearchEdit, search, sizeof(search));
-    has_search = (search[0] != '\0');
-    sprintf(like_pat, "%%%s%%", search);
+    if (search[0])
+        sprintf(like_search, "%%%s%%", search);
+    else
+        strcpy(like_search, "%");
 
     /* Read solubilizer selection: 0=All, 1=Yes, 2=No */
     solub_sel = 0;
     if (g_hSolubCombo) solub_sel = (int)SendMessage(g_hSolubCombo, CB_GETCURSEL, 0, 0);
     if (solub_sel < 0) solub_sel = 0;
+    solub_sentinel = (solub_sel == 0) ? -1 : (solub_sel == 1 ? 1 : 0);
+
+    /* Read app filter */
+    app_sel = 0;
+    if (g_hAppCombo) app_sel = (int)SendMessage(g_hAppCombo, CB_GETCURSEL, 0, 0);
+    if (app_sel < 0) app_sel = 0;
+    if (app_sel == 0 || app_sel >= (int)(sizeof(app_tokens)/sizeof(app_tokens[0])))
+        strcpy(like_app, "%");
+    else
+        sprintf(like_app, "%%%s%%", app_tokens[app_sel]);
 
     ListView_DeleteAllItems(g_hListView);
 
-    want_solub = (solub_sel == 1) ? 1 : 0;
-
-    if (solub_sel == 0) {
-        /* No solubilizer filter */
-        if (!has_search) {
-            sqlite3_prepare_v2(db,
-                "SELECT compound_name, fema_number, max_use_ppm, "
-                "       rec_min_ppm, rec_max_ppm, cost_per_gram, "
-                "       requires_solubilizer, storage_temp "
-                "FROM compound_library ORDER BY compound_name;",
-                -1, &stmt, NULL);
-        } else {
-            sqlite3_prepare_v2(db,
-                "SELECT compound_name, fema_number, max_use_ppm, "
-                "       rec_min_ppm, rec_max_ppm, cost_per_gram, "
-                "       requires_solubilizer, storage_temp "
-                "FROM compound_library "
-                "WHERE compound_name LIKE ? OR odor_profile LIKE ? "
-                "   OR flavor_descriptors LIKE ? "
-                "ORDER BY compound_name;",
-                -1, &stmt, NULL);
-            if (stmt) {
-                sqlite3_bind_text(stmt, 1, like_pat, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 2, like_pat, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 3, like_pat, -1, SQLITE_TRANSIENT);
-            }
-        }
-    } else {
-        /* Solubilizer filter active */
-        if (!has_search) {
-            sqlite3_prepare_v2(db,
-                "SELECT compound_name, fema_number, max_use_ppm, "
-                "       rec_min_ppm, rec_max_ppm, cost_per_gram, "
-                "       requires_solubilizer, storage_temp "
-                "FROM compound_library "
-                "WHERE requires_solubilizer = ? "
-                "ORDER BY compound_name;",
-                -1, &stmt, NULL);
-            if (stmt) sqlite3_bind_int(stmt, 1, want_solub);
-        } else {
-            sqlite3_prepare_v2(db,
-                "SELECT compound_name, fema_number, max_use_ppm, "
-                "       rec_min_ppm, rec_max_ppm, cost_per_gram, "
-                "       requires_solubilizer, storage_temp "
-                "FROM compound_library "
-                "WHERE requires_solubilizer = ? "
-                "  AND (compound_name LIKE ? OR odor_profile LIKE ? "
-                "       OR flavor_descriptors LIKE ?) "
-                "ORDER BY compound_name;",
-                -1, &stmt, NULL);
-            if (stmt) {
-                sqlite3_bind_int (stmt, 1, want_solub);
-                sqlite3_bind_text(stmt, 2, like_pat, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 3, like_pat, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(stmt, 4, like_pat, -1, SQLITE_TRANSIENT);
-            }
-        }
-    }
+    /* Single query handles all filter combinations via sentinels */
+    sqlite3_prepare_v2(db,
+        "SELECT compound_name, fema_number, max_use_ppm, "
+        "       rec_min_ppm, rec_max_ppm, cost_per_gram, "
+        "       requires_solubilizer, storage_temp "
+        "FROM compound_library "
+        "WHERE (compound_name      LIKE ?1"
+        "    OR odor_profile       LIKE ?1"
+        "    OR flavor_descriptors LIKE ?1)"
+        "  AND (applications       LIKE ?2)"
+        "  AND (?3 = -1 OR requires_solubilizer = ?3)"
+        "ORDER BY compound_name;",
+        -1, &stmt, NULL);
 
     if (!stmt) return;
+
+    sqlite3_bind_text(stmt, 1, like_search,   -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, like_app,       -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int (stmt, 3, solub_sentinel);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         const char* name   = (const char*)sqlite3_column_text(stmt, 0);
