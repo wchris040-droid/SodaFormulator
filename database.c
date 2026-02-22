@@ -199,6 +199,30 @@ int db_open(const char* db_path)
         ");",
         NULL, NULL, NULL);
 
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS suppliers ("
+        "  id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  supplier_name TEXT NOT NULL UNIQUE,"
+        "  website       TEXT,"
+        "  email         TEXT,"
+        "  phone         TEXT,"
+        "  notes         TEXT"
+        ");",
+        NULL, NULL, NULL);
+
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS compound_suppliers ("
+        "  id                  INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  supplier_id         INTEGER NOT NULL REFERENCES suppliers(id),"
+        "  compound_library_id INTEGER NOT NULL REFERENCES compound_library(id),"
+        "  catalog_number      TEXT,"
+        "  price_per_gram      REAL,"
+        "  min_order_grams     REAL,"
+        "  lead_time_days      INTEGER,"
+        "  UNIQUE(supplier_id, compound_library_id)"
+        ");",
+        NULL, NULL, NULL);
+
     printf("Database opened: %s\n", db_path);
     return 0;
 }
@@ -1793,4 +1817,186 @@ void db_set_setting(const char *key, const char *value)
     sqlite3_bind_text(stmt, 2, value ? value : "", -1, SQLITE_STATIC);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+}
+
+/* =========================================================================
+   db_add_supplier
+   INSERT OR IGNORE — returns 0 on success, 1 if name already exists.
+   ========================================================================= */
+int db_add_supplier(const char *name, const char *website,
+                    const char *email, const char *phone, const char *notes)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT OR IGNORE INTO suppliers "
+        "(supplier_name, website, email, phone, notes) "
+        "VALUES (?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text(stmt, 1, name,    -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, website ? website : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, email   ? email   : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, phone   ? phone   : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, notes   ? notes   : "", -1, SQLITE_STATIC);
+
+    sqlite3_step(stmt);
+    rc = (sqlite3_changes(g_db) == 1) ? 0 : 1;
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+/* =========================================================================
+   db_update_supplier
+   ========================================================================= */
+int db_update_supplier(int id, const char *name, const char *website,
+                       const char *email, const char *phone, const char *notes)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE suppliers "
+        "SET supplier_name=?, website=?, email=?, phone=?, notes=? "
+        "WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text(stmt, 1, name,    -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, website ? website : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, email   ? email   : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 4, phone   ? phone   : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, notes   ? notes   : "", -1, SQLITE_STATIC);
+    sqlite3_bind_int (stmt, 6, id);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_delete_supplier
+   Deletes compound_suppliers rows then the supplier row in a transaction.
+   ========================================================================= */
+int db_delete_supplier(int id)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+
+    rc = db_exec_simple("BEGIN;");
+    if (rc != SQLITE_OK) return rc;
+
+    /* Remove linked compound rows first */
+    if (sqlite3_prepare_v2(g_db,
+            "DELETE FROM compound_suppliers WHERE supplier_id = ?;",
+            -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    /* Remove supplier row */
+    if (sqlite3_prepare_v2(g_db,
+            "DELETE FROM suppliers WHERE id = ?;",
+            -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    return db_exec_simple("COMMIT;");
+}
+
+/* =========================================================================
+   db_add_compound_supplier
+   Returns 0=success, 1=compound not found, 2=link already exists.
+   ========================================================================= */
+int db_add_compound_supplier(int supplier_id, const char *compound_name,
+                             const char *catalog_number,
+                             float price_per_gram, float min_order_grams,
+                             int lead_time_days)
+{
+    sqlite3_stmt *stmt;
+    sqlite3_int64 cpd_id;
+    int rc;
+
+    if (!g_db) return -1;
+
+    cpd_id = lookup_compound_library_id(compound_name);
+    if (cpd_id == 0) return 1;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT OR IGNORE INTO compound_suppliers "
+        "(supplier_id, compound_library_id, catalog_number, "
+        " price_per_gram, min_order_grams, lead_time_days) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_int   (stmt, 1, supplier_id);
+    sqlite3_bind_int64 (stmt, 2, cpd_id);
+    sqlite3_bind_text  (stmt, 3, catalog_number ? catalog_number : "", -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 4, (double)price_per_gram);
+    sqlite3_bind_double(stmt, 5, (double)min_order_grams);
+    sqlite3_bind_int   (stmt, 6, lead_time_days);
+
+    sqlite3_step(stmt);
+    rc = (sqlite3_changes(g_db) == 1) ? 0 : 2;
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+/* =========================================================================
+   db_update_compound_supplier
+   ========================================================================= */
+int db_update_compound_supplier(int cs_id, const char *catalog_number,
+                                float price_per_gram, float min_order_grams,
+                                int lead_time_days)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE compound_suppliers "
+        "SET catalog_number=?, price_per_gram=?, min_order_grams=?, lead_time_days=? "
+        "WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text  (stmt, 1, catalog_number ? catalog_number : "", -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 2, (double)price_per_gram);
+    sqlite3_bind_double(stmt, 3, (double)min_order_grams);
+    sqlite3_bind_int   (stmt, 4, lead_time_days);
+    sqlite3_bind_int   (stmt, 5, cs_id);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_remove_compound_supplier
+   ========================================================================= */
+int db_remove_compound_supplier(int cs_id)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "DELETE FROM compound_suppliers WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_int(stmt, 1, cs_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return 0;
 }

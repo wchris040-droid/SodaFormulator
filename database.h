@@ -213,4 +213,35 @@ int db_get_active_limit(const char* compound_name, float* out_max_ppm);
 int  db_get_setting(const char *key, char *out_value, int out_len);
 void db_set_setting(const char *key, const char *value);
 
+/* -------------------------------------------------------------------------
+   Supplier Tracking
+   ------------------------------------------------------------------------- */
+
+/* Add a new supplier. Returns 0 on success, 1 if name already exists,
+   negative on DB error. */
+int db_add_supplier(const char *name, const char *website,
+                    const char *email, const char *phone, const char *notes);
+
+/* Update an existing supplier by id. Returns 0 on success. */
+int db_update_supplier(int id, const char *name, const char *website,
+                       const char *email, const char *phone, const char *notes);
+
+/* Delete a supplier and all its compound_suppliers rows. Returns 0 on success. */
+int db_delete_supplier(int id);
+
+/* Link a compound to a supplier. compound_name looked up in compound_library.
+   Returns 0 on success, 1 if compound not found, 2 if link already exists. */
+int db_add_compound_supplier(int supplier_id, const char *compound_name,
+                             const char *catalog_number,
+                             float price_per_gram, float min_order_grams,
+                             int lead_time_days);
+
+/* Update an existing compound_suppliers row by its id. Returns 0 on success. */
+int db_update_compound_supplier(int cs_id, const char *catalog_number,
+                                float price_per_gram, float min_order_grams,
+                                int lead_time_days);
+
+/* Remove a compound_suppliers row by its id. Returns 0 on success. */
+int db_remove_compound_supplier(int cs_id);
+
 #endif

@@ -145,6 +145,7 @@
     <ClCompile Include="panel_formulations.c" />
     <ClCompile Include="panel_inventory.c" />
     <ClCompile Include="panel_regulatory.c" />
+    <ClCompile Include="panel_suppliers.c" />
     <ClCompile Include="panel_tasting.c" />
     <ClCompile Include="sqlite3.c">
       <TurnOffAllWarnings>true</TurnOffAllWarnings>

@@ -8,11 +8,11 @@ HINSTANCE g_hInst;
 
 static HWND g_hStatus;
 static HWND g_hNav;
-static HWND g_hPanels[6];
+static HWND g_hPanels[7];
 static int  g_curPanel = -1;
 
 typedef void (*PanelRefreshFn)(void);
-static PanelRefreshFn g_refreshFns[6];
+static PanelRefreshFn g_refreshFns[7];
 
 /* Forward declarations */
 static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -27,7 +27,7 @@ static void ShowPanel(HWND hMain, int idx)
     int  sh, i;
     int  pw, ph;
 
-    if (idx < 0 || idx >= 6) return;
+    if (idx < 0 || idx >= 7) return;
 
     GetClientRect(hMain, &rc);
 
@@ -38,7 +38,7 @@ static void ShowPanel(HWND hMain, int idx)
     pw = rc.right  - NAV_WIDTH;
     ph = rc.bottom - sh;
 
-    for (i = 0; i < 6; i++)
+    for (i = 0; i < 7; i++)
         ShowWindow(g_hPanels[i], (i == idx) ? SW_SHOW : SW_HIDE);
 
     MoveWindow(g_hPanels[idx], NAV_WIDTH, 0, pw, ph, TRUE);
@@ -70,6 +70,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Batches");
         SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Inventory");
         SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Regulatory");
+        SendMessage(g_hNav, LB_ADDSTRING, 0, (LPARAM)"Suppliers");
 
         /* Status bar */
         g_hStatus = CreateStatusWindow(WS_CHILD | WS_VISIBLE,
@@ -82,6 +83,7 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         g_hPanels[NAV_BATCH]        = Panel_Batch_Create(hWnd);
         g_hPanels[NAV_INVENTORY]    = Panel_Inventory_Create(hWnd);
         g_hPanels[NAV_REGULATORY]   = Panel_Regulatory_Create(hWnd);
+        g_hPanels[NAV_SUPPLIERS]    = Panel_Suppliers_Create(hWnd);
 
         g_refreshFns[NAV_FORMULATIONS] = Panel_Formulations_Refresh;
         g_refreshFns[NAV_COMPOUNDS]    = Panel_Compounds_Refresh;
@@ -89,8 +91,9 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
         g_refreshFns[NAV_BATCH]        = Panel_Batch_Refresh;
         g_refreshFns[NAV_INVENTORY]    = Panel_Inventory_Refresh;
         g_refreshFns[NAV_REGULATORY]   = Panel_Regulatory_Refresh;
+        g_refreshFns[NAV_SUPPLIERS]    = Panel_Suppliers_Refresh;
 
-        for (i = 0; i < 6; i++)
+        for (i = 0; i < 7; i++)
             ShowWindow(g_hPanels[i], SW_HIDE);
 
         /* Select the first nav item; post to self so WM_SIZE has fired first */
@@ -133,7 +136,8 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM l
             int  sel;
             const char* labels[] = {
                 "Formulations", "Compounds",
-                "Tasting Sessions", "Batches", "Inventory", "Regulatory"
+                "Tasting Sessions", "Batches", "Inventory", "Regulatory",
+                "Suppliers"
             };
 
             sel = (int)SendMessage(g_hNav, LB_GETCURSEL, 0, 0);

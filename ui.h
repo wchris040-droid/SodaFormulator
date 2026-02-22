@@ -12,6 +12,7 @@ extern HINSTANCE g_hInst;
 #define NAV_BATCH         3
 #define NAV_INVENTORY     4
 #define NAV_REGULATORY    5
+#define NAV_SUPPLIERS     6
 
 /* Main layout constants */
 #define NAV_WIDTH         160
@@ -42,10 +43,22 @@ extern HINSTANCE g_hInst;
 #define IDC_BTN_SAVE_FILE     1019
 #define IDC_BTN_SAVE_SETTINGS 1020
 
+/* Supplier panel buttons */
+#define IDC_BTN_NEW_SUPPLIER   1021
+#define IDC_BTN_EDIT_SUPPLIER  1022
+#define IDC_BTN_DEL_SUPPLIER   1023
+#define IDC_BTN_ADD_LINK       1024
+#define IDC_BTN_EDIT_LINK      1025
+#define IDC_BTN_REMOVE_LINK    1026
+
 /* Panel child control IDs */
 #define IDC_LISTVIEW          2000
 #define IDC_FILTER_COMBO      2001
 #define IDC_APP_COMBO         2013
+
+/* Supplier panel ListViews */
+#define IDC_LV_SUPPLIERS    2014
+#define IDC_LV_COMP_LINKS   2015
 
 /* Dialog control IDs */
 #define IDC_DLG_CODE          3001
@@ -98,5 +111,8 @@ void Panel_Inventory_Refresh(void);
 
 HWND Panel_Regulatory_Create(HWND hParent);
 void Panel_Regulatory_Refresh(void);
+
+HWND Panel_Suppliers_Create(HWND hParent);
+void Panel_Suppliers_Refresh(void);
 
 #endif /* UI_H */
