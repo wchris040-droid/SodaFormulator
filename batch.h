@@ -25,6 +25,30 @@ typedef struct {
     int   ingredient_count;
 } BatchRun;
 
+typedef struct {
+    char  company_name[128];
+    char  company_address[256]; /* single line: "123 Main St, Fresno, CA 93701" */
+    float container_oz;         /* e.g. 12.0 */
+    int   servings_per_container;
+    char  sweetener_name[64];   /* "Cane Sugar", "HFCS-55", etc. */
+    char  acid_name[64];        /* "Citric Acid", "" = omit from ingredients */
+} LabelConfig;
+
+/*
+ * Generate an FDA 21 CFR 101 compliant consumer label into out_buf.
+ * Nutrition Facts are calculated from target_brix and cfg->container_oz.
+ * Returns 0 on success.
+ */
+int batch_generate_fda_label(
+    const char        *batch_number,
+    const char        *flavor_name,
+    const char        *flavor_code,
+    const char        *version_str,
+    float              target_brix,
+    const LabelConfig *cfg,
+    char              *out_buf,
+    int                out_len);
+
 /*
  * Populate br->ingredients from f at the given volume.
  * Formula: grams = (concentration_ppm [mg/L] * volume_liters) / 1000

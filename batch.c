@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "batch.h"
 #include "formulation.h"
 
@@ -107,6 +108,107 @@ static void sort_indices(int* idx, int n, const Formulation* f)
         idx[j + 1] = tmp;
     }
     (void)cmp_ppm_desc;  /* suppress unused-function warning */
+}
+
+/* =========================================================================
+   batch_generate_fda_label
+   Generates an FDA 21 CFR 101 compliant consumer label into out_buf.
+   ========================================================================= */
+int batch_generate_fda_label(
+    const char        *batch_number,
+    const char        *flavor_name,
+    const char        *flavor_code,
+    const char        *version_str,
+    float              target_brix,
+    const LabelConfig *cfg,
+    char              *out_buf,
+    int                out_len)
+{
+    /* Nutrition calculations */
+    double ml       = cfg->container_oz * 29.5735;
+    double g_sugar  = (target_brix / 100.0) * ml * 1.04; /* density correction */
+    int    cal_raw  = (int)(g_sugar * 4.0);
+    int    calories = (cal_raw < 50) ? ((cal_raw + 2) / 5 * 5)
+                                     : ((cal_raw + 5) / 10 * 10);
+    int    g_carbs  = (int)(g_sugar + 0.5);
+    int    dv_carbs = (int)((g_sugar / 275.0) * 100.0 + 0.5);
+    int    dv_added = (int)((g_sugar / 50.0)  * 100.0 + 0.5);
+    int    ml_int   = (int)(ml + 0.5);
+    int    oz_int   = (int)(cfg->container_oz);
+
+    /* Ingredients list */
+    char ingredients[512];
+    int  ilen = 0;
+
+    ilen += snprintf(ingredients + ilen, (int)sizeof(ingredients) - ilen,
+                     "Carbonated Water");
+    if (cfg->sweetener_name[0])
+        ilen += snprintf(ingredients + ilen, (int)sizeof(ingredients) - ilen,
+                         ", %s", cfg->sweetener_name);
+    if (cfg->acid_name[0])
+        ilen += snprintf(ingredients + ilen, (int)sizeof(ingredients) - ilen,
+                         ", %s", cfg->acid_name);
+    ilen += snprintf(ingredients + ilen, (int)sizeof(ingredients) - ilen,
+                     ", Natural Flavors.");
+
+    /* Build output with running offset */
+    int written = 0;
+
+#define W(...) \
+    if (written < out_len - 1) \
+        written += snprintf(out_buf + written, out_len - written, __VA_ARGS__)
+
+    W("%s\r\n", cfg->company_name);
+    W("%s\r\n", cfg->company_address);
+    W("\r\n");
+    W("  %s Artisan Craft Soda\r\n", flavor_name);
+    W("\r\n");
+    W("  NET CONTENTS: %d FL OZ (%d mL)\r\n", oz_int, ml_int);
+    W("\r\n");
+    W("INGREDIENTS: %s\r\n", ingredients);
+    W("\r\n");
+    W("CONTAINS NO MAJOR ALLERGENS.\r\n");
+    W("\r\n");
+    W("========================================\r\n");
+    W("Nutrition Facts\r\n");
+    W("%d serving per container\r\n", cfg->servings_per_container);
+    W("Serving size         %d fl oz (%d mL)\r\n", oz_int, ml_int);
+    W("----------------------------------------\r\n");
+    W("Calories                            %4d\r\n", calories);
+    W("----------------------------------------\r\n");
+    W("                  Amount/serving  %%DV*\r\n");
+    W("Total Fat 0g                        0%%\r\n");
+    W("  Saturated Fat 0g                  0%%\r\n");
+    W("  Trans Fat 0g\r\n");
+    W("Cholesterol 0mg                     0%%\r\n");
+    W("Sodium 0mg                          0%%\r\n");
+    W("Total Carbohydrate %dg            %3d%%\r\n", g_carbs, dv_carbs);
+    W("  Dietary Fiber 0g                  0%%\r\n");
+    W("  Total Sugars %dg\r\n", g_carbs);
+    W("    Incl. %dg Added Sugars        %3d%%\r\n", g_carbs, dv_added);
+    W("Protein 0g\r\n");
+    W("----------------------------------------\r\n");
+    W("Vit. D 0mcg 0%%    Calcium 0mg  0%%\r\n");
+    W("Iron 0mg  0%%      Potassium 0mg 0%%\r\n");
+    W("----------------------------------------\r\n");
+    W("*%%DV based on 2,000 calorie diet.\r\n");
+    W("\r\n");
+    W("Manufactured by:\r\n");
+    W("%s\r\n", cfg->company_name);
+    W("%s\r\n", cfg->company_address);
+    W("\r\n");
+    W("Batch: %s\r\n", batch_number);
+    W("Formulation: %s v%s\r\n", flavor_code, version_str);
+    W("========================================\r\n");
+
+#undef W
+
+    if (written > 0 && written < out_len)
+        out_buf[written] = '\0';
+    else if (out_len > 0)
+        out_buf[out_len - 1] = '\0';
+
+    return 0;
 }
 
 void batch_print_label(const BatchRun* br, const Formulation* f)

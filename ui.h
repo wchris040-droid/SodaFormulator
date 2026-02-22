@@ -37,10 +37,15 @@ extern HINSTANCE g_hInst;
 #define IDC_BTN_UPDATE_COST   1014
 #define IDC_BTN_CHECK         1015
 #define IDC_BTN_ADD_LIMIT     1016
+#define IDC_BTN_FDA_LABEL     1017
+#define IDC_BTN_GENERATE      1018
+#define IDC_BTN_SAVE_FILE     1019
+#define IDC_BTN_SAVE_SETTINGS 1020
 
 /* Panel child control IDs */
 #define IDC_LISTVIEW          2000
 #define IDC_FILTER_COMBO      2001
+#define IDC_APP_COMBO         2013
 
 /* Dialog control IDs */
 #define IDC_DLG_CODE          3001
@@ -67,6 +72,13 @@ extern HINSTANCE g_hInst;
 #define IDC_DLG_FLV_COMBO     3022
 #define IDC_DLG_STATUS_LBL    3023
 #define IDC_DLG_COST_LBL      3024
+#define IDC_DLG_CO_NAME       3025
+#define IDC_DLG_CO_ADDR       3026
+#define IDC_DLG_CONT_OZ       3027
+#define IDC_DLG_SERVINGS      3028
+#define IDC_DLG_SWEETENER     3029
+#define IDC_DLG_ACID          3030
+#define IDC_DLG_LABEL_PREVIEW 3031
 
 /* Panel create / refresh exports */
 HWND Panel_Formulations_Create(HWND hParent);

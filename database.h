@@ -205,4 +205,12 @@ int db_add_regulatory_limit(const char* compound_name,
  */
 int db_get_active_limit(const char* compound_name, float* out_max_ppm);
 
+/* -------------------------------------------------------------------------
+   App Settings (persistent key-value store)
+   ------------------------------------------------------------------------- */
+
+/* Returns 1 if key found, 0 if not found. out_value is always NUL-terminated. */
+int  db_get_setting(const char *key, char *out_value, int out_len);
+void db_set_setting(const char *key, const char *value);
+
 #endif

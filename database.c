@@ -6,6 +6,7 @@
 #include "batch.h"
 #include "database.h"
 #include "sqlite3.h"
+#include "compound_data.h"
 
 static sqlite3* g_db = NULL;
 
@@ -93,7 +94,8 @@ int db_open(const char* db_path)
         "    odor_profile         TEXT,"
         "    storage_temp         TEXT,"
         "    requires_solubilizer INTEGER NOT NULL DEFAULT 0,"
-        "    requires_inert_atm   INTEGER NOT NULL DEFAULT 0"
+        "    requires_inert_atm   INTEGER NOT NULL DEFAULT 0,"
+        "    applications         TEXT"
         ");"
     );
     if (rc != SQLITE_OK) return rc;
@@ -111,6 +113,11 @@ int db_open(const char* db_path)
         NULL, NULL, NULL);
     sqlite3_exec(g_db,
         "ALTER TABLE compound_library ADD COLUMN odor_threshold_ppm REAL;",
+        NULL, NULL, NULL);
+
+    /* applications — added for app-category filtering. */
+    sqlite3_exec(g_db,
+        "ALTER TABLE compound_library ADD COLUMN applications TEXT;",
         NULL, NULL, NULL);
 
     /* tasting_sessions — one row per sensory evaluation */
@@ -183,6 +190,14 @@ int db_open(const char* db_path)
         ");"
     );
     if (rc != SQLITE_OK) return rc;
+
+    /* app_settings — persistent key-value store for user preferences */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS app_settings ("
+        "  key   TEXT PRIMARY KEY,"
+        "  value TEXT NOT NULL DEFAULT ''"
+        ");",
+        NULL, NULL, NULL);
 
     printf("Database opened: %s\n", db_path);
     return 0;
@@ -567,51 +582,11 @@ int db_get_version_history(const char* flavor_code)
 
 /* =========================================================================
    db_seed_compound_library
-   INSERT OR IGNORE for all 15 pre-defined compounds.
-   Safe to call every startup.
+   INSERT OR IGNORE for all compounds defined in compound_data.h.
+   Safe to call every startup — idempotent.
    ========================================================================= */
 int db_seed_compound_library(void)
 {
-    /* compound_name, cas_number, fema_number, max_use_ppm, rec_min_ppm,
-       rec_max_ppm, molecular_weight, water_solubility, ph_stable_min,
-       ph_stable_max, odor_profile, storage_temp,
-       requires_solubilizer, requires_inert_atm, cost_per_gram (USD/g) */
-    static const struct {
-        const char* compound_name;
-        const char* cas_number;
-        int         fema_number;
-        float       max_use_ppm;
-        float       rec_min_ppm;
-        float       rec_max_ppm;
-        float       molecular_weight;
-        float       water_solubility;
-        float       ph_stable_min;
-        float       ph_stable_max;
-        const char* odor_profile;
-        const char* storage_temp;
-        int         requires_solubilizer;
-        int         requires_inert_atm;
-        float       cost_per_gram;
-        const char* flavor_descriptors;
-        float       odor_threshold_ppm;
-    } compounds[] = {
-        { "Benzaldehyde",        "100-52-7",    2127, 100.0f,  20.0f,  80.0f, 106.12f, 3000.0f, 2.5f, 5.0f, "almond cherry maraschino",   "RT",   0, 0, 0.05f,  "bitter almond cherry sweet",       0.35f     },
-        { "Benzyl acetate",      "140-11-4",    2135,  50.0f,   2.0f,  15.0f, 150.17f, 5900.0f, 3.0f, 5.0f, "jasmine fruity sweet",       "RT",   0, 0, 0.08f,  "fruity floral jasmine sweet",      0.15f     },
-        { "Butyric acid",        "107-92-6",    2221,   1.0f,   0.1f,   0.5f,  88.11f,    0.0f, 2.5f, 5.0f, "butter cheese rancid",       "RT",   0, 0, 0.10f,  "butter cheese rancid sour",        0.24f     },
-        { "Cinnamaldehyde",      "104-55-2",    2286,  50.0f,  10.0f,  40.0f, 132.16f, 1400.0f, 2.5f, 4.5f, "cinnamon spicy warm",        "RT",   0, 0, 0.15f,  "cinnamon spicy sweet warm",        0.015f    },
-        { "Cyclotene",           "80-71-7",     2700,  10.0f,   1.0f,   5.0f, 112.13f, 5000.0f, 2.5f, 5.0f, "maple caramel roasted",      "RT",   0, 0, 2.00f,  "maple caramel smoky sweet",        0.1f      },
-        { "Delta-decalactone",   "705-86-2",    2361,  20.0f,   1.0f,  10.0f, 170.25f,  200.0f, 3.0f, 5.5f, "peach cream coconut",        "RT",   1, 0, 1.50f,  "peach coconut creamy sweet",       0.011f    },
-        { "Diacetyl",            "431-03-8",    2370,   5.0f,   0.5f,   3.0f,  86.09f,    0.0f, 2.0f, 5.0f, "butter cream",               "2-8C", 0, 0, 0.20f,  "butter cream dairy",               0.005f    },
-        { "Ethyl cinnamate",     "103-36-6",    2430,  10.0f,   1.0f,   5.0f, 176.21f,  500.0f, 3.0f, 5.0f, "fruity cinnamon sweet",      "RT",   1, 0, 1.00f,  "cinnamon fruity sweet balsamic",   1.1f      },
-        { "Ethyl maltol",        "4940-11-8",   3487, 150.0f,  10.0f,  80.0f, 140.14f,55000.0f, 2.5f, 5.0f, "cotton candy sweet",         "RT",   0, 0, 0.10f,  "sweet cotton candy fruity",        0.086f    },
-        { "Eugenol",             "97-53-0",     2467,  20.0f,   2.0f,  10.0f, 164.20f, 2400.0f, 3.0f, 7.0f, "clove spicy warm",           "RT",   1, 0, 0.08f,  "clove spicy warm medicinal",       0.006f    },
-        { "Furaneol",            "3658-77-3",   3174,   5.0f,   0.1f,   1.0f, 128.13f,50000.0f, 2.5f, 4.5f, "caramel strawberry sweet",   "2-8C", 0, 0, 5.00f,  "caramel strawberry sweet fruity",  0.000025f },
-        { "Gamma-undecalactone", "104-67-6",    3091,  20.0f,   1.0f,  10.0f, 184.28f,  100.0f, 3.0f, 5.5f, "peach creamy fruity",        "RT",   1, 0, 2.00f,  "peach creamy coconut fruity",      0.005f    },
-        { "Maltol",              "118-71-8",    2656, 200.0f,  20.0f, 100.0f, 126.11f, 8000.0f, 2.5f, 5.0f, "sweet caramel cotton candy", "RT",   0, 0, 0.15f,  "sweet caramel jam fruity",         1.7f      },
-        { "Sotolon",             "28664-35-9",  3634,   0.5f,  0.01f,   0.3f, 128.15f,50000.0f, 2.5f, 5.0f, "maple caramel fenugreek",    "2-8C", 0, 0, 10.00f, "maple caramel fenugreek sweet",    0.0015f   },
-        { "Vanillin",            "121-33-5",    3107, 150.0f,  20.0f, 100.0f, 152.15f,10000.0f, 2.0f, 5.0f, "vanilla sweet creamy",       "RT",   0, 0, 0.05f,  "vanilla sweet creamy",             0.02f     },
-    };
-    static const int NCOMPOUNDS = 15;
 
     sqlite3_stmt* stmt = NULL;
     int rc;
@@ -702,6 +677,23 @@ int db_seed_compound_library(void)
         stmt = NULL;
     }
 
+    /* Set applications where not yet populated. Idempotent. */
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE compound_library SET applications = ? "
+        "WHERE compound_name = ? "
+        "  AND (applications IS NULL OR applications = '');",
+        -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        for (i = 0; i < NCOMPOUNDS; i++) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_text(stmt, 1, compounds[i].applications, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 2, compounds[i].compound_name, -1, SQLITE_STATIC);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+
     rc = db_exec_simple("COMMIT;");
     if (rc != SQLITE_OK) return rc;
 
@@ -776,7 +768,7 @@ int db_get_compound_by_name(const char* name, CompoundInfo* c)
         "       rec_min_ppm, rec_max_ppm, molecular_weight, water_solubility, "
         "       ph_stable_min, ph_stable_max, odor_profile, storage_temp, "
         "       requires_solubilizer, requires_inert_atm, cost_per_gram, "
-        "       flavor_descriptors, odor_threshold_ppm "
+        "       flavor_descriptors, odor_threshold_ppm, applications "
         "FROM compound_library WHERE compound_name = ?;",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -832,6 +824,13 @@ int db_get_compound_by_name(const char* name, CompoundInfo* c)
         c->flavor_descriptors[0] = '\0';
     }
     c->odor_threshold_ppm = (float)sqlite3_column_double(stmt, 17);
+
+    if (sqlite3_column_type(stmt, 18) != SQLITE_NULL) {
+        strncpy(c->applications, (const char*)sqlite3_column_text(stmt, 18), 127);
+        c->applications[127] = '\0';
+    } else {
+        c->applications[0] = '\0';
+    }
 
     sqlite3_finalize(stmt);
     return 0;
@@ -1750,4 +1749,48 @@ int db_list_inventory(void)
     sqlite3_finalize(stmt);
     printf("\n");
     return (rc == SQLITE_DONE) ? 0 : rc;
+}
+
+/* =========================================================================
+   db_get_setting
+   Returns 1 if key found and value copied, 0 if not found.
+   out_value is always NUL-terminated on return.
+   ========================================================================= */
+int db_get_setting(const char *key, char *out_value, int out_len)
+{
+    sqlite3_stmt *stmt;
+    int found = 0;
+    if (!g_db || !out_value || out_len <= 0) return 0;
+    out_value[0] = '\0';
+    if (sqlite3_prepare_v2(g_db,
+            "SELECT value FROM app_settings WHERE key = ?;",
+            -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *v = (const char*)sqlite3_column_text(stmt, 0);
+        if (v) {
+            strncpy(out_value, v, out_len - 1);
+            out_value[out_len - 1] = '\0';
+        }
+        found = 1;
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+/* =========================================================================
+   db_set_setting
+   Upserts a key-value pair in app_settings.
+   ========================================================================= */
+void db_set_setting(const char *key, const char *value)
+{
+    sqlite3_stmt *stmt;
+    if (!g_db) return;
+    if (sqlite3_prepare_v2(g_db,
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?);",
+            -1, &stmt, NULL) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, key,            -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, value ? value : "", -1, SQLITE_STATIC);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
 }
