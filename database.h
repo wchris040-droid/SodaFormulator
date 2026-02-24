@@ -5,6 +5,8 @@
 #include "compound.h"
 #include "tasting.h"
 #include "batch.h"
+#include "ingredient.h"
+#include "soda_base.h"
 #include "sqlite3.h"
 
 /*
@@ -131,6 +133,12 @@ int db_get_avg_scores(const char* flavor_code);
 int db_seed_inventory(void);
 
 /*
+ * Seed the ingredients table with all food-safe essential oils (INSERT OR IGNORE).
+ * Safe to call every startup. Returns 0 on success, negative on DB error.
+ */
+int db_seed_essential_oils(void);
+
+/*
  * Fill br->ingredients[*].cost_line and br->cost_total from compound_library.
  * Compounds with cost_per_gram == 0 get cost_line = -1.
  * Returns 0 on success, negative on DB error.
@@ -243,5 +251,59 @@ int db_update_compound_supplier(int cs_id, const char *catalog_number,
 
 /* Remove a compound_suppliers row by its id. Returns 0 on success. */
 int db_remove_compound_supplier(int cs_id);
+
+/* -------------------------------------------------------------------------
+   Ingredients Library
+   ------------------------------------------------------------------------- */
+
+/* Add a new ingredient. Returns 0 on success, 1 if name already exists,
+   negative on DB error. */
+int db_add_ingredient(const Ingredient *ing);
+
+/* Update an existing ingredient by id. Returns 0 on success. */
+int db_update_ingredient(const Ingredient *ing);
+
+/* Delete an ingredient. Returns 0=ok, 1=in use by formulation or base,
+   negative=DB error. */
+int db_delete_ingredient(int id);
+
+/* Load a single ingredient by id into out.
+   Returns 0=found, 1=not found, negative=DB error. */
+int db_get_ingredient(int id, Ingredient *out);
+
+/* -------------------------------------------------------------------------
+   Soda Bases
+   ------------------------------------------------------------------------- */
+
+/* Save a soda base (header + compounds + ingredients) in a transaction.
+   Returns 0=ok, -1=version conflict, negative=DB error. */
+int db_save_soda_base(const SodaBase *sb);
+
+/* Load the latest version of base_code into sb.
+   Returns 0=ok, 1=not found, negative=DB error. */
+int db_load_latest_base(const char *base_code, SodaBase *sb);
+
+/* Delete all versions of base_code and their associated rows.
+   Returns 0=ok, 1=referenced by a formulation, negative=DB error. */
+int db_delete_soda_base(const char *base_code);
+
+/* -------------------------------------------------------------------------
+   Formulation extras (bases + ingredients attached to a saved formulation)
+   ------------------------------------------------------------------------- */
+
+/* Replace all formulation_bases and formulation_ingredients rows for this
+   specific formulation version.
+   Returns 0=ok, 1=formulation not found, negative=DB error. */
+int db_save_formulation_extras(const char *flavor_code,
+                               int major, int minor, int patch,
+                               const FormBase *bases, int base_count,
+                               const FormIngredient *ings, int ing_count);
+
+/* Load formulation_bases and formulation_ingredients for this version.
+   Returns 0=ok, 1=not found, negative=DB error. */
+int db_load_formulation_extras(const char *flavor_code,
+                               int major, int minor, int patch,
+                               FormBase *bases, int *base_count,
+                               FormIngredient *ings, int *ing_count);
 
 #endif

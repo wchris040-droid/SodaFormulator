@@ -146,6 +146,8 @@
     <ClCompile Include="panel_inventory.c" />
     <ClCompile Include="panel_regulatory.c" />
     <ClCompile Include="panel_suppliers.c" />
+    <ClCompile Include="panel_ingredients.c" />
+    <ClCompile Include="panel_bases.c" />
     <ClCompile Include="panel_tasting.c" />
     <ClCompile Include="sqlite3.c">
       <TurnOffAllWarnings>true</TurnOffAllWarnings>
@@ -158,6 +160,8 @@
     <ClInclude Include="compound.h" />
     <ClInclude Include="database.h" />
     <ClInclude Include="formulation.h" />
+    <ClInclude Include="ingredient.h" />
+    <ClInclude Include="soda_base.h" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="tasting.h" />
     <ClInclude Include="ui.h" />

@@ -13,6 +13,8 @@ extern HINSTANCE g_hInst;
 #define NAV_INVENTORY     4
 #define NAV_REGULATORY    5
 #define NAV_SUPPLIERS     6
+#define NAV_INGREDIENTS   7
+#define NAV_BASES         8
 
 /* Main layout constants */
 #define NAV_WIDTH         160
@@ -51,6 +53,22 @@ extern HINSTANCE g_hInst;
 #define IDC_BTN_EDIT_LINK      1025
 #define IDC_BTN_REMOVE_LINK    1026
 
+/* Ingredients panel buttons */
+#define IDC_BTN_NEW_ING        1027
+#define IDC_BTN_EDIT_ING       1028
+#define IDC_BTN_DEL_ING        1029
+
+/* Soda Bases panel buttons */
+#define IDC_BTN_NEW_BASE       1030
+#define IDC_BTN_EDIT_BASE      1031
+#define IDC_BTN_DEL_BASE       1032
+
+/* Formulation dialog — base/ingredient add/remove */
+#define IDC_BTN_ADD_BASE       1033
+#define IDC_BTN_REMOVE_BASE    1034
+#define IDC_BTN_ADD_ING        1035
+#define IDC_BTN_REMOVE_ING     1036
+
 /* Panel child control IDs */
 #define IDC_LISTVIEW          2000
 #define IDC_FILTER_COMBO      2001
@@ -59,6 +77,14 @@ extern HINSTANCE g_hInst;
 /* Supplier panel ListViews */
 #define IDC_LV_SUPPLIERS    2014
 #define IDC_LV_COMP_LINKS   2015
+
+/* Ingredients and Bases panel ListViews */
+#define IDC_LV_INGREDIENTS  2016
+#define IDC_LV_BASES        2017
+
+/* Formulation dialog — base/ingredient ListViews */
+#define IDC_DLG_BASE_LIST   2020
+#define IDC_DLG_ING_LIST    2021
 
 /* Dialog control IDs */
 #define IDC_DLG_CODE          3001
@@ -93,6 +119,37 @@ extern HINSTANCE g_hInst;
 #define IDC_DLG_ACID          3030
 #define IDC_DLG_LABEL_PREVIEW 3031
 
+/* Ingredient editor dialog controls */
+#define IDC_ING_NAME          3032
+#define IDC_ING_CATEGORY      3033
+#define IDC_ING_UNIT          3034
+#define IDC_ING_COST          3035
+#define IDC_ING_SUPPLIER      3036
+#define IDC_ING_BRAND         3037
+#define IDC_ING_NOTES         3038
+
+/* Soda base editor dialog controls */
+#define IDC_BASE_CODE         3039
+#define IDC_BASE_NAME         3040
+#define IDC_BASE_YIELD        3041
+#define IDC_BASE_CPD_COMBO    3042
+#define IDC_BASE_CPD_PPM      3043
+#define IDC_BASE_ING_COMBO    3044
+#define IDC_BASE_ING_AMOUNT   3045
+#define IDC_BASE_ING_UNIT     3046
+
+/* Formulation dialog — base/ingredient add-row controls */
+#define IDC_DLG_BASE_COMBO    3047
+#define IDC_DLG_BASE_AMOUNT   3048
+#define IDC_DLG_BASE_UNIT     3049
+#define IDC_DLG_ING_COMBO         3050
+#define IDC_DLG_ING_AMOUNT        3051
+#define IDC_DLG_ING_UNIT          3052
+#define IDC_DLG_PROD_INSTR        3053
+
+/* Formulation panel — Preview/Print button */
+#define IDC_BTN_PREVIEW_PRINT     1037
+
 /* Panel create / refresh exports */
 HWND Panel_Formulations_Create(HWND hParent);
 void Panel_Formulations_Refresh(void);
@@ -114,5 +171,11 @@ void Panel_Regulatory_Refresh(void);
 
 HWND Panel_Suppliers_Create(HWND hParent);
 void Panel_Suppliers_Refresh(void);
+
+HWND Panel_Ingredients_Create(HWND hParent);
+void Panel_Ingredients_Refresh(void);
+
+HWND Panel_Bases_Create(HWND hParent);
+void Panel_Bases_Refresh(void);
 
 #endif /* UI_H */

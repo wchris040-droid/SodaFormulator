@@ -223,6 +223,85 @@ int db_open(const char* db_path)
         ");",
         NULL, NULL, NULL);
 
+    /* ingredients — general non-compound inputs */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS ingredients ("
+        "  id              INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  ingredient_name TEXT    NOT NULL UNIQUE,"
+        "  category        TEXT    NOT NULL DEFAULT 'other',"
+        "  unit            TEXT    NOT NULL DEFAULT 'g',"
+        "  cost_per_unit   REAL    NOT NULL DEFAULT 0,"
+        "  supplier_id     INTEGER REFERENCES suppliers(id),"
+        "  brand           TEXT,"
+        "  notes           TEXT"
+        ");",
+        NULL, NULL, NULL);
+
+    /* soda_bases — versioned sub-formulations */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS soda_bases ("
+        "  id           INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  base_code    TEXT    NOT NULL,"
+        "  base_name    TEXT    NOT NULL,"
+        "  ver_major    INTEGER NOT NULL DEFAULT 1,"
+        "  ver_minor    INTEGER NOT NULL DEFAULT 0,"
+        "  ver_patch    INTEGER NOT NULL DEFAULT 0,"
+        "  yield_liters REAL    NOT NULL DEFAULT 1.0,"
+        "  notes        TEXT,"
+        "  saved_at     TEXT    NOT NULL DEFAULT (DATETIME('now','localtime')),"
+        "  UNIQUE (base_code, ver_major, ver_minor, ver_patch)"
+        ");",
+        NULL, NULL, NULL);
+
+    /* soda_base_compounds — aroma compounds inside a base */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS soda_base_compounds ("
+        "  id                  INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  soda_base_id        INTEGER NOT NULL REFERENCES soda_bases(id),"
+        "  compound_name       TEXT    NOT NULL,"
+        "  concentration_ppm   REAL    NOT NULL,"
+        "  compound_library_id INTEGER REFERENCES compound_library(id)"
+        ");",
+        NULL, NULL, NULL);
+
+    /* soda_base_ingredients — general ingredients inside a base */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS soda_base_ingredients ("
+        "  id            INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  soda_base_id  INTEGER NOT NULL REFERENCES soda_bases(id),"
+        "  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),"
+        "  amount        REAL    NOT NULL,"
+        "  unit          TEXT    NOT NULL DEFAULT 'g'"
+        ");",
+        NULL, NULL, NULL);
+
+    /* formulation_bases — soda bases used in a formulation */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS formulation_bases ("
+        "  id             INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  formulation_id INTEGER NOT NULL REFERENCES formulations(id),"
+        "  soda_base_id   INTEGER NOT NULL REFERENCES soda_bases(id),"
+        "  amount         REAL    NOT NULL,"
+        "  unit           TEXT    NOT NULL DEFAULT '%'"
+        ");",
+        NULL, NULL, NULL);
+
+    /* formulation_ingredients — general ingredients used in a formulation */
+    sqlite3_exec(g_db,
+        "CREATE TABLE IF NOT EXISTS formulation_ingredients ("
+        "  id             INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  formulation_id INTEGER NOT NULL REFERENCES formulations(id),"
+        "  ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),"
+        "  amount         REAL    NOT NULL,"
+        "  unit           TEXT    NOT NULL DEFAULT 'g'"
+        ");",
+        NULL, NULL, NULL);
+
+    /* Migration: add production_instructions if not present (ignore error if column exists) */
+    sqlite3_exec(g_db,
+        "ALTER TABLE formulations ADD COLUMN production_instructions TEXT DEFAULT '';",
+        NULL, NULL, NULL);
+
     printf("Database opened: %s\n", db_path);
     return 0;
 }
@@ -284,8 +363,8 @@ int db_save_formulation(const Formulation* f)
     rc = sqlite3_prepare_v2(g_db,
         "INSERT INTO formulations "
         "(flavor_code, flavor_name, ver_major, ver_minor, ver_patch, "
-        " target_ph, target_brix) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?);",
+        " target_ph, target_brix, production_instructions) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Prepare error: %s\n", sqlite3_errmsg(g_db));
@@ -293,13 +372,14 @@ int db_save_formulation(const Formulation* f)
         return rc;
     }
 
-    sqlite3_bind_text  (stmt, 1, f->flavor_code,   -1, SQLITE_STATIC);
-    sqlite3_bind_text  (stmt, 2, f->flavor_name,   -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 1, f->flavor_code,              -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 2, f->flavor_name,              -1, SQLITE_STATIC);
     sqlite3_bind_int   (stmt, 3, f->version.major);
     sqlite3_bind_int   (stmt, 4, f->version.minor);
     sqlite3_bind_int   (stmt, 5, f->version.patch);
     sqlite3_bind_double(stmt, 6, (double)f->target_ph);
     sqlite3_bind_double(stmt, 7, (double)f->target_brix);
+    sqlite3_bind_text  (stmt, 8, f->production_instructions,  -1, SQLITE_STATIC);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -416,7 +496,8 @@ int db_load_latest(const char* flavor_code, Formulation* f)
 
     rc = sqlite3_prepare_v2(g_db,
         "SELECT id, flavor_code, flavor_name, ver_major, ver_minor, ver_patch, "
-        "       target_ph, target_brix "
+        "       target_ph, target_brix, "
+        "       COALESCE(production_instructions,'') "
         "FROM formulations "
         "WHERE flavor_code = ? "
         "ORDER BY ver_major DESC, ver_minor DESC, ver_patch DESC "
@@ -456,6 +537,17 @@ int db_load_latest(const char* flavor_code, Formulation* f)
     f->version.patch = sqlite3_column_int(stmt, 5);
     f->target_ph     = (float)sqlite3_column_double(stmt, 6);
     f->target_brix   = (float)sqlite3_column_double(stmt, 7);
+
+    {
+        const char *pi = (const char *)sqlite3_column_text(stmt, 8);
+        if (pi) {
+            strncpy(f->production_instructions, pi,
+                    sizeof(f->production_instructions) - 1);
+            f->production_instructions[sizeof(f->production_instructions) - 1] = '\0';
+        } else {
+            f->production_instructions[0] = '\0';
+        }
+    }
 
     sqlite3_finalize(stmt);  /* finalize before opening compound query */
 
@@ -1286,6 +1378,104 @@ int db_seed_inventory(void)
 }
 
 /* =========================================================================
+   db_seed_essential_oils
+   INSERT OR IGNORE — idempotent, safe to call every startup.
+   ========================================================================= */
+int db_seed_essential_oils(void)
+{
+    static const char *oils[] = {
+        "Allspice Essential Oil",
+        "Anise Essential Oil",
+        "Basil Essential Oil",
+        "Bay Laurel Essential Oil",
+        "Bergamot Essential Oil",
+        "Black Pepper Essential Oil",
+        "Blood Orange Essential Oil",
+        "Cardamom Essential Oil",
+        "Caraway Essential Oil",
+        "Celery Seed Essential Oil",
+        "Chamomile (German) Essential Oil",
+        "Chamomile (Roman) Essential Oil",
+        "Cinnamon Bark Essential Oil",
+        "Cinnamon Leaf Essential Oil",
+        "Clove Bud Essential Oil",
+        "Cocoa Essential Oil",
+        "Coffee Essential Oil",
+        "Coriander Essential Oil",
+        "Cumin Essential Oil",
+        "Dill Essential Oil",
+        "Fennel (Sweet) Essential Oil",
+        "Frankincense Essential Oil",
+        "Geranium Essential Oil",
+        "Ginger Essential Oil",
+        "Grapefruit Essential Oil",
+        "Helichrysum Essential Oil",
+        "Jasmine Essential Oil",
+        "Lavender Essential Oil",
+        "Lemon Essential Oil",
+        "Lemongrass Essential Oil",
+        "Lime Essential Oil",
+        "Mandarin Essential Oil",
+        "Marjoram Essential Oil",
+        "Neroli Essential Oil",
+        "Nutmeg Essential Oil",
+        "Orange (Sweet) Essential Oil",
+        "Oregano Essential Oil",
+        "Palmarosa Essential Oil",
+        "Parsley Seed Essential Oil",
+        "Peppermint Essential Oil",
+        "Petitgrain Essential Oil",
+        "Rose Essential Oil",
+        "Rosemary Essential Oil",
+        "Sage Essential Oil",
+        "Spearmint Essential Oil",
+        "Star Anise Essential Oil",
+        "Tangerine Essential Oil",
+        "Tarragon Essential Oil",
+        "Thyme Essential Oil",
+        "Vanilla Essential Oil",
+        "Ylang Ylang Essential Oil",
+        "Yuzu Essential Oil"
+    };
+    static const int NOILS = (int)(sizeof(oils) / sizeof(oils[0]));
+    sqlite3_stmt *stmt = NULL;
+    int           rc, i;
+
+    rc = db_exec_simple("BEGIN;");
+    if (rc != SQLITE_OK) return rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT OR IGNORE INTO ingredients "
+        "(ingredient_name, category, unit, cost_per_unit) "
+        "VALUES (?, 'essential_oil', 'mL', 0.0);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "EO seed prepare: %s\n", sqlite3_errmsg(g_db));
+        db_exec_simple("ROLLBACK;");
+        return rc;
+    }
+
+    for (i = 0; i < NOILS; i++) {
+        sqlite3_reset(stmt);
+        sqlite3_bind_text(stmt, 1, oils[i], -1, SQLITE_STATIC);
+        rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            fprintf(stderr, "EO seed error: %s\n", sqlite3_errmsg(g_db));
+            sqlite3_finalize(stmt);
+            db_exec_simple("ROLLBACK;");
+            return rc;
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    rc = db_exec_simple("COMMIT;");
+    if (rc != SQLITE_OK) return rc;
+
+    printf("Essential oils seeded: %d oils.\n", NOILS);
+    return 0;
+}
+
+/* =========================================================================
    db_cost_batch
    ========================================================================= */
 int db_cost_batch(BatchRun* br)
@@ -1998,5 +2188,599 @@ int db_remove_compound_supplier(int cs_id)
     sqlite3_bind_int(stmt, 1, cs_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_add_ingredient
+   INSERT OR IGNORE — returns 0 on success, 1 if name already exists.
+   ========================================================================= */
+int db_add_ingredient(const Ingredient *ing)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT OR IGNORE INTO ingredients "
+        "(ingredient_name, category, unit, cost_per_unit, supplier_id, brand, notes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text  (stmt, 1, ing->ingredient_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 2, ing->category,        -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 3, ing->unit,             -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 4, (double)ing->cost_per_unit);
+    if (ing->supplier_id > 0)
+        sqlite3_bind_int(stmt, 5, ing->supplier_id);
+    else
+        sqlite3_bind_null(stmt, 5);
+    sqlite3_bind_text(stmt, 6, ing->brand[0] ? ing->brand : "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, ing->notes[0] ? ing->notes : "", -1, SQLITE_STATIC);
+
+    sqlite3_step(stmt);
+    rc = (sqlite3_changes(g_db) == 1) ? 0 : 1;
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+/* =========================================================================
+   db_update_ingredient
+   ========================================================================= */
+int db_update_ingredient(const Ingredient *ing)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "UPDATE ingredients "
+        "SET ingredient_name=?, category=?, unit=?, cost_per_unit=?, "
+        "    supplier_id=?, brand=?, notes=? "
+        "WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text  (stmt, 1, ing->ingredient_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 2, ing->category,        -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 3, ing->unit,             -1, SQLITE_STATIC);
+    sqlite3_bind_double(stmt, 4, (double)ing->cost_per_unit);
+    if (ing->supplier_id > 0)
+        sqlite3_bind_int(stmt, 5, ing->supplier_id);
+    else
+        sqlite3_bind_null(stmt, 5);
+    sqlite3_bind_text(stmt, 6, ing->brand, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 7, ing->notes, -1, SQLITE_STATIC);
+    sqlite3_bind_int (stmt, 8, ing->id);
+
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_delete_ingredient
+   Returns 0=ok, 1=in use, negative=DB error.
+   ========================================================================= */
+int db_delete_ingredient(int id)
+{
+    sqlite3_stmt *stmt;
+    int count = 0;
+    int rc;
+
+    if (!g_db) return -1;
+
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT COUNT(*) FROM formulation_ingredients WHERE ingredient_id=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            count += sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT COUNT(*) FROM soda_base_ingredients WHERE ingredient_id=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            count += sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+
+    if (count > 0) return 1;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "DELETE FROM ingredients WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_int(stmt, 1, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_get_ingredient
+   Returns 0=found, 1=not found, negative=DB error.
+   ========================================================================= */
+int db_get_ingredient(int id, Ingredient *out)
+{
+    sqlite3_stmt *stmt;
+    int rc;
+    const char *v;
+
+    if (!g_db) return -1;
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT id, ingredient_name, category, unit, cost_per_unit, "
+        "       COALESCE(supplier_id, 0), COALESCE(brand, ''), COALESCE(notes, '') "
+        "FROM ingredients WHERE id=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_int(stmt, 1, id);
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(stmt); return 1; }
+    if (rc != SQLITE_ROW)  { sqlite3_finalize(stmt); return rc; }
+
+    out->id = sqlite3_column_int(stmt, 0);
+
+    v = (const char *)sqlite3_column_text(stmt, 1);
+    strncpy(out->ingredient_name, v ? v : "", MAX_INGREDIENT_NAME - 1);
+    out->ingredient_name[MAX_INGREDIENT_NAME - 1] = '\0';
+
+    v = (const char *)sqlite3_column_text(stmt, 2);
+    strncpy(out->category, v ? v : "", MAX_INGREDIENT_CATEGORY - 1);
+    out->category[MAX_INGREDIENT_CATEGORY - 1] = '\0';
+
+    v = (const char *)sqlite3_column_text(stmt, 3);
+    strncpy(out->unit, v ? v : "g", MAX_INGREDIENT_UNIT - 1);
+    out->unit[MAX_INGREDIENT_UNIT - 1] = '\0';
+
+    out->cost_per_unit = (float)sqlite3_column_double(stmt, 4);
+    out->supplier_id   = sqlite3_column_int(stmt, 5);
+
+    v = (const char *)sqlite3_column_text(stmt, 6);
+    strncpy(out->brand, v ? v : "", MAX_INGREDIENT_BRAND - 1);
+    out->brand[MAX_INGREDIENT_BRAND - 1] = '\0';
+
+    v = (const char *)sqlite3_column_text(stmt, 7);
+    strncpy(out->notes, v ? v : "", 255);
+    out->notes[255] = '\0';
+
+    sqlite3_finalize(stmt);
+    return 0;
+}
+
+/* =========================================================================
+   db_save_soda_base
+   Returns 0=ok, -1=version conflict, negative=DB error.
+   ========================================================================= */
+int db_save_soda_base(const SodaBase *sb)
+{
+    sqlite3_stmt *stmt;
+    sqlite3_int64 base_id;
+    int rc;
+    int i;
+
+    if (!g_db) return -1;
+
+    rc = db_exec_simple("BEGIN;");
+    if (rc != SQLITE_OK) return rc;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "INSERT INTO soda_bases "
+        "(base_code, base_name, ver_major, ver_minor, ver_patch, yield_liters, notes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?);",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) { db_exec_simple("ROLLBACK;"); return rc; }
+
+    sqlite3_bind_text  (stmt, 1, sb->base_code,    -1, SQLITE_STATIC);
+    sqlite3_bind_text  (stmt, 2, sb->base_name,    -1, SQLITE_STATIC);
+    sqlite3_bind_int   (stmt, 3, sb->version.major);
+    sqlite3_bind_int   (stmt, 4, sb->version.minor);
+    sqlite3_bind_int   (stmt, 5, sb->version.patch);
+    sqlite3_bind_double(stmt, 6, (double)sb->yield_liters);
+    if (sb->notes[0])
+        sqlite3_bind_text(stmt, 7, sb->notes, -1, SQLITE_STATIC);
+    else
+        sqlite3_bind_null(stmt, 7);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+
+    if (rc == SQLITE_CONSTRAINT) { db_exec_simple("ROLLBACK;"); return -1; }
+    if (rc != SQLITE_DONE) { db_exec_simple("ROLLBACK;"); return rc; }
+
+    base_id = sqlite3_last_insert_rowid(g_db);
+
+    if (sb->compound_count > 0) {
+        rc = sqlite3_prepare_v2(g_db,
+            "INSERT INTO soda_base_compounds "
+            "(soda_base_id, compound_name, concentration_ppm, compound_library_id) "
+            "VALUES (?, ?, ?, ?);",
+            -1, &stmt, NULL);
+        if (rc != SQLITE_OK) { db_exec_simple("ROLLBACK;"); return rc; }
+
+        for (i = 0; i < sb->compound_count; i++) {
+            sqlite3_int64 lib_id = lookup_compound_library_id(sb->compounds[i].compound_name);
+            sqlite3_reset(stmt);
+            sqlite3_bind_int64 (stmt, 1, base_id);
+            sqlite3_bind_text  (stmt, 2, sb->compounds[i].compound_name, -1, SQLITE_STATIC);
+            sqlite3_bind_double(stmt, 3, (double)sb->compounds[i].concentration_ppm);
+            if (lib_id > 0) sqlite3_bind_int64(stmt, 4, lib_id);
+            else            sqlite3_bind_null(stmt, 4);
+            rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) {
+                sqlite3_finalize(stmt);
+                db_exec_simple("ROLLBACK;");
+                return rc;
+            }
+        }
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
+
+    if (sb->ingredient_count > 0) {
+        rc = sqlite3_prepare_v2(g_db,
+            "INSERT INTO soda_base_ingredients "
+            "(soda_base_id, ingredient_id, amount, unit) VALUES (?, ?, ?, ?);",
+            -1, &stmt, NULL);
+        if (rc != SQLITE_OK) { db_exec_simple("ROLLBACK;"); return rc; }
+
+        for (i = 0; i < sb->ingredient_count; i++) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_int64 (stmt, 1, base_id);
+            sqlite3_bind_int   (stmt, 2, sb->ingredients[i].ingredient_id);
+            sqlite3_bind_double(stmt, 3, (double)sb->ingredients[i].amount);
+            sqlite3_bind_text  (stmt, 4, sb->ingredients[i].unit, -1, SQLITE_STATIC);
+            rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) {
+                sqlite3_finalize(stmt);
+                db_exec_simple("ROLLBACK;");
+                return rc;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    return db_exec_simple("COMMIT;");
+}
+
+/* =========================================================================
+   db_load_latest_base
+   Returns 0=ok, 1=not found, negative=DB error.
+   ========================================================================= */
+int db_load_latest_base(const char *base_code, SodaBase *sb)
+{
+    sqlite3_stmt *stmt;
+    sqlite3_int64 base_id;
+    int rc;
+    int i;
+    const char *v;
+
+    if (!g_db) return -1;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT id, base_code, base_name, ver_major, ver_minor, ver_patch, "
+        "       yield_liters, COALESCE(notes, '') "
+        "FROM soda_bases WHERE base_code=? "
+        "ORDER BY ver_major DESC, ver_minor DESC, ver_patch DESC LIMIT 1;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text(stmt, 1, base_code, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(stmt); return 1; }
+    if (rc != SQLITE_ROW)  { sqlite3_finalize(stmt); return rc; }
+
+    base_id = sqlite3_column_int64(stmt, 0);
+    sb->id  = (int)base_id;
+
+    v = (const char *)sqlite3_column_text(stmt, 1);
+    strncpy(sb->base_code, v ? v : "", MAX_BASE_CODE - 1);
+    sb->base_code[MAX_BASE_CODE - 1] = '\0';
+
+    v = (const char *)sqlite3_column_text(stmt, 2);
+    strncpy(sb->base_name, v ? v : "", MAX_BASE_NAME - 1);
+    sb->base_name[MAX_BASE_NAME - 1] = '\0';
+
+    sb->version.major = sqlite3_column_int(stmt, 3);
+    sb->version.minor = sqlite3_column_int(stmt, 4);
+    sb->version.patch = sqlite3_column_int(stmt, 5);
+    sb->yield_liters  = (float)sqlite3_column_double(stmt, 6);
+
+    v = (const char *)sqlite3_column_text(stmt, 7);
+    strncpy(sb->notes, v ? v : "", 255);
+    sb->notes[255] = '\0';
+
+    sqlite3_finalize(stmt);
+
+    sb->compound_count = 0;
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT compound_name, concentration_ppm, COALESCE(compound_library_id, 0) "
+        "FROM soda_base_compounds WHERE soda_base_id=? ORDER BY id;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, base_id);
+        i = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && i < MAX_BASE_COMPOUNDS) {
+            v = (const char *)sqlite3_column_text(stmt, 0);
+            strncpy(sb->compounds[i].compound_name, v ? v : "", 63);
+            sb->compounds[i].compound_name[63] = '\0';
+            sb->compounds[i].concentration_ppm      = (float)sqlite3_column_double(stmt, 1);
+            sb->compounds[i].compound_library_id    = sqlite3_column_int(stmt, 2);
+            i++;
+        }
+        sb->compound_count = i;
+        sqlite3_finalize(stmt);
+    }
+
+    sb->ingredient_count = 0;
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT sbi.ingredient_id, i.ingredient_name, sbi.amount, sbi.unit "
+        "FROM soda_base_ingredients sbi "
+        "JOIN ingredients i ON i.id = sbi.ingredient_id "
+        "WHERE sbi.soda_base_id=? ORDER BY sbi.id;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, base_id);
+        i = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && i < MAX_BASE_INGREDIENTS) {
+            sb->ingredients[i].ingredient_id = sqlite3_column_int(stmt, 0);
+            v = (const char *)sqlite3_column_text(stmt, 1);
+            strncpy(sb->ingredients[i].ingredient_name, v ? v : "", 63);
+            sb->ingredients[i].ingredient_name[63] = '\0';
+            sb->ingredients[i].amount = (float)sqlite3_column_double(stmt, 2);
+            v = (const char *)sqlite3_column_text(stmt, 3);
+            strncpy(sb->ingredients[i].unit, v ? v : "g", 15);
+            sb->ingredients[i].unit[15] = '\0';
+            i++;
+        }
+        sb->ingredient_count = i;
+        sqlite3_finalize(stmt);
+    }
+
+    return 0;
+}
+
+/* =========================================================================
+   db_delete_soda_base
+   Returns 0=ok, 1=referenced by a formulation, negative=DB error.
+   ========================================================================= */
+int db_delete_soda_base(const char *base_code)
+{
+    sqlite3_stmt *stmt;
+    int count = 0;
+    int rc;
+
+    if (!g_db) return -1;
+
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT COUNT(*) FROM formulation_bases fb "
+        "JOIN soda_bases sb ON sb.id = fb.soda_base_id "
+        "WHERE sb.base_code=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, base_code, -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    if (count > 0) return 1;
+
+    rc = db_exec_simple("BEGIN;");
+    if (rc != SQLITE_OK) return rc;
+
+    if (sqlite3_prepare_v2(g_db,
+        "DELETE FROM soda_base_compounds WHERE soda_base_id IN "
+        "(SELECT id FROM soda_bases WHERE base_code=?);",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, base_code, -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(g_db,
+        "DELETE FROM soda_base_ingredients WHERE soda_base_id IN "
+        "(SELECT id FROM soda_bases WHERE base_code=?);",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, base_code, -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(g_db,
+        "DELETE FROM soda_bases WHERE base_code=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, base_code, -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    return db_exec_simple("COMMIT;");
+}
+
+/* =========================================================================
+   db_save_formulation_extras
+   Returns 0=ok, 1=formulation not found, negative=DB error.
+   ========================================================================= */
+int db_save_formulation_extras(const char *flavor_code,
+                               int major, int minor, int patch,
+                               const FormBase *bases, int base_count,
+                               const FormIngredient *ings, int ing_count)
+{
+    sqlite3_stmt *stmt;
+    sqlite3_int64 form_id = 0;
+    int rc;
+    int i;
+
+    if (!g_db) return -1;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT id FROM formulations "
+        "WHERE flavor_code=? AND ver_major=? AND ver_minor=? AND ver_patch=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text(stmt, 1, flavor_code, -1, SQLITE_STATIC);
+    sqlite3_bind_int (stmt, 2, major);
+    sqlite3_bind_int (stmt, 3, minor);
+    sqlite3_bind_int (stmt, 4, patch);
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(stmt); return 1; }
+    form_id = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    rc = db_exec_simple("BEGIN;");
+    if (rc != SQLITE_OK) return rc;
+
+    if (sqlite3_prepare_v2(g_db,
+        "DELETE FROM formulation_bases WHERE formulation_id=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, form_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(g_db,
+        "DELETE FROM formulation_ingredients WHERE formulation_id=?;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, form_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    if (base_count > 0) {
+        rc = sqlite3_prepare_v2(g_db,
+            "INSERT INTO formulation_bases "
+            "(formulation_id, soda_base_id, amount, unit) VALUES (?, ?, ?, ?);",
+            -1, &stmt, NULL);
+        if (rc != SQLITE_OK) { db_exec_simple("ROLLBACK;"); return rc; }
+
+        for (i = 0; i < base_count; i++) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_int64 (stmt, 1, form_id);
+            sqlite3_bind_int   (stmt, 2, bases[i].soda_base_id);
+            sqlite3_bind_double(stmt, 3, (double)bases[i].amount);
+            sqlite3_bind_text  (stmt, 4, bases[i].unit, -1, SQLITE_STATIC);
+            rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) {
+                sqlite3_finalize(stmt);
+                db_exec_simple("ROLLBACK;");
+                return rc;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (ing_count > 0) {
+        rc = sqlite3_prepare_v2(g_db,
+            "INSERT INTO formulation_ingredients "
+            "(formulation_id, ingredient_id, amount, unit) VALUES (?, ?, ?, ?);",
+            -1, &stmt, NULL);
+        if (rc != SQLITE_OK) { db_exec_simple("ROLLBACK;"); return rc; }
+
+        for (i = 0; i < ing_count; i++) {
+            sqlite3_reset(stmt);
+            sqlite3_bind_int64 (stmt, 1, form_id);
+            sqlite3_bind_int   (stmt, 2, ings[i].ingredient_id);
+            sqlite3_bind_double(stmt, 3, (double)ings[i].amount);
+            sqlite3_bind_text  (stmt, 4, ings[i].unit, -1, SQLITE_STATIC);
+            rc = sqlite3_step(stmt);
+            if (rc != SQLITE_DONE) {
+                sqlite3_finalize(stmt);
+                db_exec_simple("ROLLBACK;");
+                return rc;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    return db_exec_simple("COMMIT;");
+}
+
+/* =========================================================================
+   db_load_formulation_extras
+   Returns 0=ok, 1=not found, negative=DB error.
+   ========================================================================= */
+int db_load_formulation_extras(const char *flavor_code,
+                               int major, int minor, int patch,
+                               FormBase *bases, int *base_count,
+                               FormIngredient *ings, int *ing_count)
+{
+    sqlite3_stmt *stmt;
+    sqlite3_int64 form_id = 0;
+    int rc;
+    int i;
+    const char *v;
+
+    if (!g_db) return -1;
+    *base_count = 0;
+    *ing_count  = 0;
+
+    rc = sqlite3_prepare_v2(g_db,
+        "SELECT id FROM formulations "
+        "WHERE flavor_code=? AND ver_major=? AND ver_minor=? AND ver_patch=?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return rc;
+
+    sqlite3_bind_text(stmt, 1, flavor_code, -1, SQLITE_STATIC);
+    sqlite3_bind_int (stmt, 2, major);
+    sqlite3_bind_int (stmt, 3, minor);
+    sqlite3_bind_int (stmt, 4, patch);
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(stmt); return 1; }
+    form_id = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT fb.soda_base_id, sb.base_name, fb.amount, fb.unit "
+        "FROM formulation_bases fb "
+        "JOIN soda_bases sb ON sb.id = fb.soda_base_id "
+        "WHERE fb.formulation_id=? ORDER BY fb.id;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, form_id);
+        i = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && i < MAX_FORM_BASES) {
+            bases[i].soda_base_id = sqlite3_column_int(stmt, 0);
+            v = (const char *)sqlite3_column_text(stmt, 1);
+            strncpy(bases[i].base_name, v ? v : "", MAX_BASE_NAME - 1);
+            bases[i].base_name[MAX_BASE_NAME - 1] = '\0';
+            bases[i].amount = (float)sqlite3_column_double(stmt, 2);
+            v = (const char *)sqlite3_column_text(stmt, 3);
+            strncpy(bases[i].unit, v ? v : "%", 15);
+            bases[i].unit[15] = '\0';
+            i++;
+        }
+        *base_count = i;
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(g_db,
+        "SELECT fi.ingredient_id, i.ingredient_name, fi.amount, fi.unit "
+        "FROM formulation_ingredients fi "
+        "JOIN ingredients i ON i.id = fi.ingredient_id "
+        "WHERE fi.formulation_id=? ORDER BY fi.id;",
+        -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, form_id);
+        i = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && i < MAX_FORM_INGREDIENTS) {
+            ings[i].ingredient_id = sqlite3_column_int(stmt, 0);
+            v = (const char *)sqlite3_column_text(stmt, 1);
+            strncpy(ings[i].ingredient_name, v ? v : "", MAX_INGREDIENT_NAME - 1);
+            ings[i].ingredient_name[MAX_INGREDIENT_NAME - 1] = '\0';
+            ings[i].amount = (float)sqlite3_column_double(stmt, 2);
+            v = (const char *)sqlite3_column_text(stmt, 3);
+            strncpy(ings[i].unit, v ? v : "g", 15);
+            ings[i].unit[15] = '\0';
+            i++;
+        }
+        *ing_count = i;
+        sqlite3_finalize(stmt);
+    }
+
     return 0;
 }
