@@ -206,10 +206,9 @@ static void DlgRefreshItemList(void)
         lvi.pszText = g_dlgData.bases[i].base_name;
         lvi.lParam  = (LPARAM)(-(i + 1));
         row = ListView_InsertItem(g_hDlgIngLV, &lvi);
-        ListView_SetItemText(g_hDlgIngLV, row, 1, "Base");
         snprintf(buf, sizeof(buf), "%.4f", g_dlgData.bases[i].amount);
-        ListView_SetItemText(g_hDlgIngLV, row, 2, buf);
-        ListView_SetItemText(g_hDlgIngLV, row, 3, g_dlgData.bases[i].unit);
+        ListView_SetItemText(g_hDlgIngLV, row, 1, buf);
+        ListView_SetItemText(g_hDlgIngLV, row, 2, g_dlgData.bases[i].unit);
     }
 
     for (i = 0; i < g_dlgData.ingredient_count; i++) {
@@ -220,10 +219,9 @@ static void DlgRefreshItemList(void)
         lvi.pszText = g_dlgData.ingredients[i].ingredient_name;
         lvi.lParam  = (LPARAM)i;
         row = ListView_InsertItem(g_hDlgIngLV, &lvi);
-        ListView_SetItemText(g_hDlgIngLV, row, 1, "Ingredient");
         snprintf(buf, sizeof(buf), "%.4f", g_dlgData.ingredients[i].amount);
-        ListView_SetItemText(g_hDlgIngLV, row, 2, buf);
-        ListView_SetItemText(g_hDlgIngLV, row, 3, g_dlgData.ingredients[i].unit);
+        ListView_SetItemText(g_hDlgIngLV, row, 1, buf);
+        ListView_SetItemText(g_hDlgIngLV, row, 2, g_dlgData.ingredients[i].unit);
     }
 }
 
@@ -339,7 +337,7 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         y += 35;
 
         /* ---- Ingredients & Bases (unified) ---- */
-        CreateWindowEx(0, "STATIC", "Ingredients & Bases:",
+        CreateWindowEx(0, "STATIC", "Ingredients:",
             WS_CHILD | WS_VISIBLE,
             lx, y, 160, 18, hWnd, NULL, g_hInst, NULL);
         y += 20;
@@ -350,10 +348,9 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
             (HMENU)(INT_PTR)IDC_DLG_ING_LIST, g_hInst, NULL);
         ListView_SetExtendedListViewStyle(g_hDlgIngLV,
             LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-        LV_AddCol(g_hDlgIngLV, 0, "Name",   240);
-        LV_AddCol(g_hDlgIngLV, 1, "Type",   100);
-        LV_AddCol(g_hDlgIngLV, 2, "Amount",  80);
-        LV_AddCol(g_hDlgIngLV, 3, "Unit",    60);
+        LV_AddCol(g_hDlgIngLV, 0, "Name",   320);
+        LV_AddCol(g_hDlgIngLV, 1, "Amount", 100);
+        LV_AddCol(g_hDlgIngLV, 2, "Unit",    80);
         DlgRefreshItemList();
         y += 128;
 
@@ -779,18 +776,18 @@ static void FormulationPreview(HWND hParent, const char *flavor_code)
         fprintf(fp, "</table>\n");
     }
 
-    /* ---- Ingredients & Bases ---- */
+    /* ---- Ingredients ---- */
     if (base_count > 0 || ing_count > 0) {
-        fprintf(fp, "<h2>Ingredients &amp; Bases</h2>\n<table>\n"
-                    "<tr><th>Name</th><th>Type</th><th>Amount</th><th>Unit</th></tr>\n");
+        fprintf(fp, "<h2>Ingredients</h2>\n<table>\n"
+                    "<tr><th>Name</th><th>Amount</th><th>Unit</th></tr>\n");
         for (i = 0; i < base_count; i++) {
             fprintf(fp, "<tr><td>"); fwrite_escaped(fp, bases[i].base_name);
-            fprintf(fp, "</td><td>Base</td><td>%.4f</td><td>%s</td></tr>\n",
+            fprintf(fp, "</td><td>%.4f</td><td>%s</td></tr>\n",
                     (double)bases[i].amount, bases[i].unit);
         }
         for (i = 0; i < ing_count; i++) {
             fprintf(fp, "<tr><td>"); fwrite_escaped(fp, ings[i].ingredient_name);
-            fprintf(fp, "</td><td>Ingredient</td><td>%.4f</td><td>%s</td></tr>\n",
+            fprintf(fp, "</td><td>%.4f</td><td>%s</td></tr>\n",
                     (double)ings[i].amount, ings[i].unit);
         }
         fprintf(fp, "</table>\n");
