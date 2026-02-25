@@ -31,7 +31,6 @@ typedef struct {
 
 static FormDlgData g_dlgData;
 static HWND        g_hFormDlg   = NULL;
-static HWND        g_hDlgCpdLV  = NULL;
 static HWND        g_hDlgIngLV  = NULL;  /* unified bases+ingredients list */
 
 /* =========================================================================
@@ -68,52 +67,6 @@ static int LV_InsertRow(HWND hLV, int row, const char* col0)
     lvi.iSubItem = 0;
     lvi.pszText  = (char*)col0;
     return ListView_InsertItem(hLV, &lvi);
-}
-
-/* =========================================================================
-   Refresh the dialog's compound ListView from g_dlgData.form
-   ========================================================================= */
-static void DlgRefreshCpdList(void)
-{
-    int i;
-    char buf[32];
-
-    if (!g_hDlgCpdLV) return;
-
-    ListView_DeleteAllItems(g_hDlgCpdLV);
-
-    for (i = 0; i < g_dlgData.form.compound_count; i++) {
-        LV_InsertRow(g_hDlgCpdLV, i,
-                     g_dlgData.form.compounds[i].compound_name);
-        sprintf(buf, "%.2f", g_dlgData.form.compounds[i].concentration_ppm);
-        LV_SetCell(g_hDlgCpdLV, i, 1, buf);
-    }
-}
-
-/* =========================================================================
-   Populate compound ComboBox from compound_library
-   ========================================================================= */
-static void DlgPopulateCpdCombo(HWND hCombo)
-{
-    sqlite3*      db   = db_get_handle();
-    sqlite3_stmt* stmt = NULL;
-
-    SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
-
-    if (!db) return;
-
-    if (sqlite3_prepare_v2(db,
-            "SELECT compound_name FROM compound_library ORDER BY compound_name;",
-            -1, &stmt, NULL) != SQLITE_OK)
-        return;
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const char* name = (const char*)sqlite3_column_text(stmt, 0);
-        SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)name);
-    }
-    sqlite3_finalize(stmt);
-
-    SendMessage(hCombo, CB_SETCURSEL, 0, 0);
 }
 
 /* =========================================================================
@@ -287,55 +240,6 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
             y += 36;
         }
 
-        /* Compounds label */
-        CreateWindowEx(0, "STATIC", "Compounds:",
-            WS_CHILD | WS_VISIBLE,
-            lx, y, 100, 18, hWnd, NULL, g_hInst, NULL);
-        y += 20;
-
-        /* Compound ListView */
-        g_hDlgCpdLV = CreateWindowEx(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-            lx, y, 520, 160, hWnd, (HMENU)(INT_PTR)IDC_DLG_CPD_LIST,
-            g_hInst, NULL);
-        LV_AddCol(g_hDlgCpdLV, 0, "Compound Name", 260);
-        LV_AddCol(g_hDlgCpdLV, 1, "ppm",           120);
-        DlgRefreshCpdList();
-        y += 168;
-
-        /* Add row */
-        {
-            HWND hCombo;
-            CreateWindowEx(0, "STATIC", "Add:",
-                WS_CHILD | WS_VISIBLE,
-                lx, y + 3, 30, 18, hWnd, NULL, g_hInst, NULL);
-            hCombo = CreateWindowEx(0, "COMBOBOX", NULL,
-                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                lx + 35, y, 200, 200, hWnd,
-                (HMENU)(INT_PTR)IDC_DLG_CPD_COMBO, g_hInst, NULL);
-            DlgPopulateCpdCombo(hCombo);
-
-            CreateWindowEx(0, "STATIC", "ppm:",
-                WS_CHILD | WS_VISIBLE,
-                lx + 242, y + 3, 30, 18, hWnd, NULL, g_hInst, NULL);
-            CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "0.0",
-                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                lx + 277, y, 70, rh, hWnd,
-                (HMENU)(INT_PTR)IDC_DLG_CPD_PPM, g_hInst, NULL);
-            CreateWindowEx(0, "BUTTON", "Add",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                lx + 353, y, 60, rh, hWnd,
-                (HMENU)(INT_PTR)IDC_BTN_ADD_CPD, g_hInst, NULL);
-        }
-        y += 30;
-
-        /* Remove Selected (compound) */
-        CreateWindowEx(0, "BUTTON", "Remove Selected",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            lx, y, 120, 25, hWnd,
-            (HMENU)(INT_PTR)IDC_BTN_REMOVE_CPD, g_hInst, NULL);
-        y += 35;
-
         /* ---- Ingredients & Bases (unified) ---- */
         CreateWindowEx(0, "STATIC", "Ingredients:",
             WS_CHILD | WS_VISIBLE,
@@ -344,7 +248,7 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
 
         g_hDlgIngLV = CreateWindowEx(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-            lx, y, 520, 120, hWnd,
+            lx, y, 520, 260, hWnd,
             (HMENU)(INT_PTR)IDC_DLG_ING_LIST, g_hInst, NULL);
         ListView_SetExtendedListViewStyle(g_hDlgIngLV,
             LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -352,7 +256,7 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         LV_AddCol(g_hDlgIngLV, 1, "Amount", 100);
         LV_AddCol(g_hDlgIngLV, 2, "Unit",    80);
         DlgRefreshItemList();
-        y += 128;
+        y += 268;
 
         /* Unified add row */
         {
@@ -439,59 +343,6 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
                 s_ing_filtering = FALSE;
             }
             break;
-
-        case IDC_BTN_ADD_CPD:
-        {
-            char name[128], ppmStr[32];
-            float ppm;
-            HWND hCombo, hPpmEdit;
-
-            if (g_dlgData.form.compound_count >= MAX_COMPOUNDS) {
-                MessageBox(hWnd, "Maximum compounds reached.", "Limit", MB_OK);
-                break;
-            }
-
-            hCombo   = GetDlgItem(hWnd, IDC_DLG_CPD_COMBO);
-            hPpmEdit = GetDlgItem(hWnd, IDC_DLG_CPD_PPM);
-
-            {
-                int sel = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
-                if (sel == CB_ERR) break;
-                SendMessage(hCombo, CB_GETLBTEXT, sel, (LPARAM)name);
-            }
-
-            GetWindowText(hPpmEdit, ppmStr, sizeof(ppmStr));
-            ppm = (float)atof(ppmStr);
-            if (ppm <= 0.0f) {
-                MessageBox(hWnd, "Enter a positive ppm value.", "Input", MB_OK);
-                break;
-            }
-
-            strncpy(g_dlgData.form.compounds[g_dlgData.form.compound_count].compound_name,
-                    name, 63);
-            g_dlgData.form.compounds[g_dlgData.form.compound_count].compound_name[63] = '\0';
-            g_dlgData.form.compounds[g_dlgData.form.compound_count].concentration_ppm = ppm;
-            g_dlgData.form.compound_count++;
-
-            DlgRefreshCpdList();
-            SetWindowText(hPpmEdit, "0.0");
-        }
-        break;
-
-        case IDC_BTN_REMOVE_CPD:
-        {
-            int sel = ListView_GetNextItem(g_hDlgCpdLV, -1, LVNI_SELECTED);
-            int last;
-            if (sel < 0) break;
-
-            last = g_dlgData.form.compound_count - 1;
-            if (sel < last)
-                g_dlgData.form.compounds[sel] = g_dlgData.form.compounds[last];
-            g_dlgData.form.compound_count--;
-
-            DlgRefreshCpdList();
-        }
-        break;
 
         case IDC_BTN_ADD_ING:
         {
@@ -764,18 +615,6 @@ static void FormulationPreview(HWND hParent, const char *flavor_code)
     fprintf(fp, "<tr><td>Target Brix</td><td>%.2f</td></tr>\n", (double)f.target_brix);
     fprintf(fp, "</table>\n");
 
-    /* ---- Aroma Compounds ---- */
-    if (f.compound_count > 0) {
-        fprintf(fp, "<h2>Aroma Compounds</h2>\n<table>\n"
-                    "<tr><th>Compound</th><th>ppm</th></tr>\n");
-        for (i = 0; i < f.compound_count; i++) {
-            fprintf(fp, "<tr><td>"); fwrite_escaped(fp, f.compounds[i].compound_name);
-            fprintf(fp, "</td><td>%.4f</td></tr>\n",
-                    (double)f.compounds[i].concentration_ppm);
-        }
-        fprintf(fp, "</table>\n");
-    }
-
     /* ---- Ingredients ---- */
     if (base_count > 0 || ing_count > 0) {
         fprintf(fp, "<h2>Ingredients</h2>\n<table>\n"
@@ -815,7 +654,7 @@ static void FormulationPreview(HWND hParent, const char *flavor_code)
 static void OpenFormDialog(HWND hParent)
 {
     RECT  pr;
-    int   dw = 580, dh = 820;
+    int   dw = 580, dh = 720;
     int   cx, cy;
     MSG   msg;
 
@@ -845,7 +684,6 @@ static void OpenFormDialog(HWND hParent)
     EnableWindow(hParent, TRUE);
     if (IsWindow(g_hFormDlg)) DestroyWindow(g_hFormDlg);
     g_hFormDlg  = NULL;
-    g_hDlgCpdLV = NULL;
     g_hDlgIngLV = NULL;
     SetForegroundWindow(hParent);
 }
@@ -900,8 +738,7 @@ static LRESULT CALLBACK FormPanelWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
         LV_AddCol(g_hListView, 2, "Version",    70);
         LV_AddCol(g_hListView, 3, "pH",         50);
         LV_AddCol(g_hListView, 4, "Brix",       50);
-        LV_AddCol(g_hListView, 5, "Compounds",  90);
-        LV_AddCol(g_hListView, 6, "Saved At",   155);
+        LV_AddCol(g_hListView, 5, "Saved At",   155);
     }
     return 0;
 
@@ -1089,13 +926,11 @@ void Panel_Formulations_Refresh(void)
 
     ListView_DeleteAllItems(g_hListView);
 
-    /* Latest version of each flavor with compound count */
+    /* Latest version of each flavor */
     if (sqlite3_prepare_v2(db,
             "SELECT f.flavor_code, f.flavor_name, "
             "       f.ver_major, f.ver_minor, f.ver_patch, "
-            "       f.target_ph, f.target_brix, f.saved_at, "
-            "       (SELECT COUNT(*) FROM formulation_compounds fc "
-            "        WHERE fc.formulation_id = f.id) AS cnt "
+            "       f.target_ph, f.target_brix, f.saved_at "
             "FROM formulations f "
             "WHERE f.id = ("
             "    SELECT id FROM formulations "
@@ -1115,7 +950,6 @@ void Panel_Formulations_Refresh(void)
         double      ph      = sqlite3_column_double(stmt, 5);
         double      brix    = sqlite3_column_double(stmt, 6);
         const char* saved   = (const char*)sqlite3_column_text(stmt, 7);
-        int         cnt     = sqlite3_column_int   (stmt, 8);
 
         LV_InsertRow(g_hListView, row, code ? code : "");
 
@@ -1129,10 +963,7 @@ void Panel_Formulations_Refresh(void)
         sprintf(buf, "%.2f", brix);
         LV_SetCell(g_hListView, row, 4, buf);
 
-        sprintf(buf, "%d", cnt);
-        LV_SetCell(g_hListView, row, 5, buf);
-
-        LV_SetCell(g_hListView, row, 6, saved ? saved : "");
+        LV_SetCell(g_hListView, row, 5, saved ? saved : "");
 
         row++;
     }

@@ -280,7 +280,6 @@ static LRESULT CALLBACK BatchDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             int  flvSel, verSel;
             int  major, minor, patch;
             float vol;
-            Formulation f;
             BatchRun    br;
             char        statusBuf[128];
             char        costBuf[64];
@@ -298,17 +297,16 @@ static LRESULT CALLBACK BatchDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             if (vol <= 0.0f) { MessageBox(hWnd, "Enter a positive volume.", "Input", MB_OK); break; }
 
             ZeroMemory(&br, sizeof(br));
-            if (db_load_version(flvBuf, major, minor, patch, &f) != 0) break;
-            batch_calculate(&br, &f, vol);
-            db_cost_batch(&br);
-
             {
-                int shortfalls = db_check_inventory(&br);
-                if (shortfalls == 0)
-                    strcpy(statusBuf, "All compounds in stock.");
-                else
-                    sprintf(statusBuf, "%d shortfall(s) — see below.", shortfalls);
+                FormBase       bases[MAX_FORM_BASES];
+                FormIngredient ings[MAX_FORM_INGREDIENTS];
+                int            bc = 0, ic = 0;
+                db_load_formulation_extras(flvBuf, major, minor, patch,
+                                           bases, &bc, ings, &ic);
+                batch_calculate_from_ingredients(&br, bases, bc, ings, ic, vol);
             }
+
+            strcpy(statusBuf, "Ingredients calculated.");
 
             if (br.cost_total >= 0.0f)
                 sprintf(costBuf, "$%.4f", br.cost_total);
@@ -336,7 +334,6 @@ static LRESULT CALLBACK BatchDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             int  flvSel, verSel;
             int  major, minor, patch;
             float vol;
-            Formulation f;
             BatchRun    br;
 
             flvSel = (int)SendMessage(hFlv, CB_GETCURSEL, 0, 0);
@@ -360,13 +357,14 @@ static LRESULT CALLBACK BatchDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
             GetWindowText(GetDlgItem(hWnd, IDC_DLG_BATCHNO), batchnoStr, sizeof(batchnoStr));
 
             ZeroMemory(&br, sizeof(br));
-            if (db_load_version(flvBuf, major, minor, patch, &f) != 0) {
-                MessageBox(hWnd, "Failed to load formulation version.", "Error", MB_ICONERROR);
-                break;
+            {
+                FormBase       bases[MAX_FORM_BASES];
+                FormIngredient ings[MAX_FORM_INGREDIENTS];
+                int            bc = 0, ic = 0;
+                db_load_formulation_extras(flvBuf, major, minor, patch,
+                                           bases, &bc, ings, &ic);
+                batch_calculate_from_ingredients(&br, bases, bc, ings, ic, vol);
             }
-
-            batch_calculate(&br, &f, vol);
-            db_cost_batch(&br);
 
             if (batchnoStr[0])
                 strncpy(br.batch_number, batchnoStr, MAX_BATCH_NUMBER - 1);
@@ -375,8 +373,6 @@ static LRESULT CALLBACK BatchDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPAR
                 MessageBox(hWnd, "Failed to save batch.", "Error", MB_ICONERROR);
                 break;
             }
-
-            db_deduct_inventory(&br);
 
             g_dlgSaved = TRUE;
             g_dlgDone  = TRUE;

@@ -211,6 +211,44 @@ int batch_generate_fda_label(
     return 0;
 }
 
+/* =========================================================================
+   batch_calculate_from_ingredients
+   ========================================================================= */
+void batch_calculate_from_ingredients(
+    BatchRun             *br,
+    const FormBase       *bases,    int base_count,
+    const FormIngredient *ings,     int ing_count,
+    float                 volume_liters)
+{
+    int i;
+    memset(br->ingredients, 0, sizeof(br->ingredients));
+    br->volume_liters    = volume_liters;
+    br->cost_total       = -1.0f;
+    br->ingredient_count = 0;
+
+    for (i = 0; i < base_count && br->ingredient_count < MAX_COMPOUNDS; i++) {
+        BatchIngredient *bi = &br->ingredients[br->ingredient_count];
+        strncpy(bi->compound_name, bases[i].base_name, 63);
+        bi->compound_name[63] = '\0';
+        bi->grams_needed = (strcmp(bases[i].unit, "%") == 0)
+            ? (bases[i].amount / 100.0f) * volume_liters
+            : bases[i].amount;
+        bi->cost_line = -1.0f;
+        br->ingredient_count++;
+    }
+
+    for (i = 0; i < ing_count && br->ingredient_count < MAX_COMPOUNDS; i++) {
+        BatchIngredient *bi = &br->ingredients[br->ingredient_count];
+        strncpy(bi->compound_name, ings[i].ingredient_name, 63);
+        bi->compound_name[63] = '\0';
+        bi->grams_needed = (strcmp(ings[i].unit, "%") == 0)
+            ? (ings[i].amount / 100.0f) * volume_liters
+            : ings[i].amount;
+        bi->cost_line = -1.0f;
+        br->ingredient_count++;
+    }
+}
+
 void batch_print_label(const BatchRun* br, const Formulation* f)
 {
     int idx[MAX_COMPOUNDS];

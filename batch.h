@@ -68,4 +68,16 @@ void batch_print_manifest(const BatchRun* br);
  */
 void batch_print_label(const BatchRun* br, const Formulation* f);
 
+/*
+ * Populate br->ingredients from FormBase/FormIngredient arrays at the given volume.
+ * "%" unit: quantity = (amount/100) * volume_liters  [result stored in grams_needed as liters]
+ * Other units: quantity = amount (absolute, as entered).
+ * Cost fields set to -1.
+ */
+void batch_calculate_from_ingredients(
+    BatchRun             *br,
+    const FormBase       *bases,    int base_count,
+    const FormIngredient *ings,     int ing_count,
+    float                 volume_liters);
+
 #endif
