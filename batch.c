@@ -230,9 +230,12 @@ void batch_calculate_from_ingredients(
         BatchIngredient *bi = &br->ingredients[br->ingredient_count];
         strncpy(bi->compound_name, bases[i].base_name, 63);
         bi->compound_name[63] = '\0';
-        bi->grams_needed = (strcmp(bases[i].unit, "%") == 0)
-            ? (bases[i].amount / 100.0f) * volume_liters
-            : bases[i].amount;
+        if (strcmp(bases[i].unit, "%") == 0)
+            bi->grams_needed = (bases[i].amount / 100.0f) * volume_liters;
+        else if (strcmp(bases[i].unit, "ppm") == 0)
+            bi->grams_needed = (bases[i].amount * volume_liters) / 1000.0f;
+        else
+            bi->grams_needed = bases[i].amount;
         bi->cost_line = -1.0f;
         br->ingredient_count++;
     }
@@ -241,9 +244,12 @@ void batch_calculate_from_ingredients(
         BatchIngredient *bi = &br->ingredients[br->ingredient_count];
         strncpy(bi->compound_name, ings[i].ingredient_name, 63);
         bi->compound_name[63] = '\0';
-        bi->grams_needed = (strcmp(ings[i].unit, "%") == 0)
-            ? (ings[i].amount / 100.0f) * volume_liters
-            : ings[i].amount;
+        if (strcmp(ings[i].unit, "%") == 0)
+            bi->grams_needed = (ings[i].amount / 100.0f) * volume_liters;
+        else if (strcmp(ings[i].unit, "ppm") == 0)
+            bi->grams_needed = (ings[i].amount * volume_liters) / 1000.0f;
+        else
+            bi->grams_needed = ings[i].amount;
         bi->cost_line = -1.0f;
         br->ingredient_count++;
     }

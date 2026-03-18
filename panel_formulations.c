@@ -284,6 +284,7 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
             SendMessage(hItemUnit, CB_ADDSTRING, 0, (LPARAM)"kg");
             SendMessage(hItemUnit, CB_ADDSTRING, 0, (LPARAM)"L");
             SendMessage(hItemUnit, CB_ADDSTRING, 0, (LPARAM)"%");
+            SendMessage(hItemUnit, CB_ADDSTRING, 0, (LPARAM)"ppm");
             SendMessage(hItemUnit, CB_SETCURSEL, 0, 0);
 
             CreateWindowEx(0, "BUTTON", "Add",
