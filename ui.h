@@ -150,6 +150,10 @@ extern HINSTANCE g_hInst;
 /* Formulation panel — Preview/Print button */
 #define IDC_BTN_PREVIEW_PRINT     1037
 
+/* Formulation dialog — ppm/volume conversion */
+#define IDC_BTN_CONVERT_UNIT      1038
+#define IDC_DLG_REF_VOL           3054
+
 /* Panel create / refresh exports */
 HWND Panel_Formulations_Create(HWND hParent);
 void Panel_Formulations_Refresh(void);

@@ -291,6 +291,19 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 lx+390, y, 50, rh, hWnd,
                 (HMENU)(INT_PTR)IDC_BTN_ADD_ING, g_hInst, NULL);
+
+            /* ppm / volume conversion */
+            CreateWindowEx(0, "STATIC", "@ (L):",
+                WS_CHILD | WS_VISIBLE,
+                lx+450, y+3, 28, 18, hWnd, NULL, g_hInst, NULL);
+            CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "10.0",
+                WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                lx+480, y, 38, rh, hWnd,
+                (HMENU)(INT_PTR)IDC_DLG_REF_VOL, g_hInst, NULL);
+            CreateWindowEx(0, "BUTTON", "\xAB ppm",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                lx+522, y, 38, rh, hWnd,
+                (HMENU)(INT_PTR)IDC_BTN_CONVERT_UNIT, g_hInst, NULL);
         }
         y += 30;
 
@@ -344,6 +357,54 @@ static LRESULT CALLBACK FormDlgWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
                 s_ing_filtering = FALSE;
             }
             break;
+
+        case IDC_BTN_CONVERT_UNIT:
+        {
+            /* Convert the pending amount+unit between ppm and volume.
+               Formulas (density ≈ 1 g/mL):
+                 mL → ppm : ppm = mL × 1000 / ref_L
+                 L  → ppm : ppm = L  × 1e6  / ref_L
+                 ppm → mL : mL  = ppm × ref_L / 1000        */
+            char  amtStr[32], unitStr[16], refStr[16];
+            float amt, ref;
+            int   unitSel, newSel;
+            HWND  hAmt  = GetDlgItem(hWnd, IDC_DLG_ING_AMOUNT);
+            HWND  hUnit = GetDlgItem(hWnd, IDC_DLG_ING_UNIT);
+            HWND  hRef  = GetDlgItem(hWnd, IDC_DLG_REF_VOL);
+
+            GetWindowText(hAmt,  amtStr, sizeof(amtStr));
+            GetWindowText(hRef,  refStr, sizeof(refStr));
+            unitSel = (int)SendMessage(hUnit, CB_GETCURSEL, 0, 0);
+            if (unitSel == CB_ERR) break;
+            SendMessage(hUnit, CB_GETLBTEXT, (WPARAM)unitSel, (LPARAM)unitStr);
+
+            amt = (float)atof(amtStr);
+            ref = (float)atof(refStr);
+            if (ref <= 0.0f) {
+                MessageBox(hWnd, "Enter a positive reference batch volume.", "Convert", MB_OK);
+                break;
+            }
+
+            if (strcmp(unitStr, "mL") == 0) {
+                snprintf(amtStr, sizeof(amtStr), "%.2f", amt * 1000.0f / ref);
+                SetWindowText(hAmt, amtStr);
+                newSel = (int)SendMessage(hUnit, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)"ppm");
+                if (newSel != CB_ERR) SendMessage(hUnit, CB_SETCURSEL, (WPARAM)newSel, 0);
+            } else if (strcmp(unitStr, "L") == 0) {
+                snprintf(amtStr, sizeof(amtStr), "%.2f", amt * 1000000.0f / ref);
+                SetWindowText(hAmt, amtStr);
+                newSel = (int)SendMessage(hUnit, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)"ppm");
+                if (newSel != CB_ERR) SendMessage(hUnit, CB_SETCURSEL, (WPARAM)newSel, 0);
+            } else if (strcmp(unitStr, "ppm") == 0) {
+                snprintf(amtStr, sizeof(amtStr), "%.4f", amt * ref / 1000.0f);
+                SetWindowText(hAmt, amtStr);
+                newSel = (int)SendMessage(hUnit, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)"mL");
+                if (newSel != CB_ERR) SendMessage(hUnit, CB_SETCURSEL, (WPARAM)newSel, 0);
+            } else {
+                MessageBox(hWnd, "Select mL, L, or ppm to convert.", "Convert", MB_OK);
+            }
+        }
+        break;
 
         case IDC_BTN_ADD_ING:
         {
