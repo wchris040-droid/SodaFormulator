@@ -25,8 +25,6 @@ static SodaBase g_baseDlgData;
 static BOOL     g_baseDlgIsEdit    = FALSE;
 static HWND     g_hBaseDlgCpdLV   = NULL;
 static HWND     g_hBaseDlgIngLV   = NULL;
-static HWND     g_hCpdUnitLbl     = NULL;  /* "ppm:" / "mL:" label next to cpd field */
-static BOOL     s_cpd_in_ppm      = TRUE;  /* TRUE = cpd field holds ppm, FALSE = mL */
 static BOOL     s_base_ing_filter  = FALSE;
 
 /* Local IDs for the base editor dialog */
@@ -38,8 +36,6 @@ static BOOL     s_base_ing_filter  = FALSE;
 #define IDC_BBASE_REM_ING      4305
 #define IDC_BBASE_SAVE         4306
 #define IDC_BBASE_CANCEL       4307
-#define IDC_BBASE_CPD_REF_VOL  4308
-#define IDC_BBASE_CPD_CONVERT  4309
 #define IDC_BBASE_ING_REF_VOL  4310
 #define IDC_BBASE_ING_CONVERT  4311
 
@@ -142,6 +138,38 @@ static void FilterBaseIngCombo(HWND hCombo, const char *filter)
 }
 
 /* =========================================================================
+   Auto-calculate ppm from compound amount + unit + yield and update display
+   ========================================================================= */
+static void RefreshCpdPpmDisplay(HWND hWnd)
+{
+    char  amtStr[32], unitStr[16], yieldStr[32], dispStr[32];
+    float amt, yield, ppm;
+    int   unitSel;
+    HWND  hUnit = GetDlgItem(hWnd, IDC_BASE_CPD_UNIT);
+
+    GetWindowText(GetDlgItem(hWnd, IDC_BASE_CPD_PPM),  amtStr,   sizeof(amtStr));
+    GetWindowText(GetDlgItem(hWnd, IDC_BASE_YIELD),    yieldStr, sizeof(yieldStr));
+    unitSel = (int)SendMessage(hUnit, CB_GETCURSEL, 0, 0);
+    if (unitSel == CB_ERR) return;
+    SendMessage(hUnit, CB_GETLBTEXT, (WPARAM)unitSel, (LPARAM)unitStr);
+
+    amt   = (float)atof(amtStr);
+    yield = (float)atof(yieldStr);
+    if (yield <= 0.0f) yield = 1.0f;
+
+    if      (strcmp(unitStr, "ppm") == 0) ppm = amt;
+    else if (strcmp(unitStr, "g")   == 0) ppm = (amt * 1000.0f)    / yield;
+    else if (strcmp(unitStr, "mL")  == 0) ppm = (amt * 1000.0f)    / yield;
+    else if (strcmp(unitStr, "kg")  == 0) ppm = (amt * 1000000.0f) / yield;
+    else if (strcmp(unitStr, "L")   == 0) ppm = (amt * 1000000.0f) / yield;
+    else if (strcmp(unitStr, "%")   == 0) ppm = amt * 10000.0f;
+    else ppm = 0.0f;
+
+    snprintf(dispStr, sizeof(dispStr), "%.2f", ppm);
+    SetWindowText(GetDlgItem(hWnd, IDC_BASE_CPD_PPM_DISP), dispStr);
+}
+
+/* =========================================================================
    Base editor dialog WndProc
    ========================================================================= */
 static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
@@ -220,7 +248,7 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
         stmt = NULL;
         hCombo = CreateWindowEx(0, "COMBOBOX", NULL,
             WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
-            lx+35, y, 250, 250,
+            lx+35, y, 200, 250,
             hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_COMBO, g_hInst, NULL);
         if (db && sqlite3_prepare_v2(db,
             "SELECT compound_name FROM compound_library ORDER BY compound_name;",
@@ -233,30 +261,42 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
         }
         SendMessage(hCombo, CB_SETCURSEL, 0, 0);
 
-        g_hCpdUnitLbl = CreateWindowEx(0, "STATIC", "ppm:",
-            WS_CHILD|WS_VISIBLE, lx+292, y+3, 30, 18,
-            hWnd, NULL, g_hInst, NULL);
+        /* amount + unit */
         CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "0.0",
             WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,
-            lx+326, y, 70, rh,
+            lx+240, y, 60, rh,
             hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_PPM, g_hInst, NULL);
+        {
+            HWND hUnitC = CreateWindowEx(0, "COMBOBOX", NULL,
+                WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST,
+                lx+305, y, 55, 130,
+                hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_UNIT, g_hInst, NULL);
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"ppm");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"g");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"mL");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"kg");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"L");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"%");
+            SendMessage(hUnitC, CB_SETCURSEL, 0, 0);
+        }
         CreateWindowEx(0, "BUTTON", "Add",
             WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
-            lx+402, y, 50, rh,
+            lx+365, y, 45, rh,
             hWnd, (HMENU)(INT_PTR)IDC_BBASE_ADD_CPD, g_hInst, NULL);
 
-        /* ppm / volume conversion for compounds */
-        CreateWindowEx(0, "STATIC", "@ (L):",
-            WS_CHILD|WS_VISIBLE, lx+460, y+3, 30, 18,
+        /* auto ppm display */
+        CreateWindowEx(0, "STATIC", "=",
+            WS_CHILD|WS_VISIBLE,
+            lx+418, y+3, 10, 18,
             hWnd, NULL, g_hInst, NULL);
-        CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "10.0",
-            WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,
-            lx+494, y, 38, rh,
-            hWnd, (HMENU)(INT_PTR)IDC_BBASE_CPD_REF_VOL, g_hInst, NULL);
-        CreateWindowEx(0, "BUTTON", "\xAB ppm",
-            WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,
-            lx+536, y, 38, rh,
-            hWnd, (HMENU)(INT_PTR)IDC_BBASE_CPD_CONVERT, g_hInst, NULL);
+        CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT", "0.00",
+            WS_CHILD|WS_VISIBLE|ES_READONLY|ES_RIGHT,
+            lx+432, y, 75, rh,
+            hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_PPM_DISP, g_hInst, NULL);
+        CreateWindowEx(0, "STATIC", "ppm",
+            WS_CHILD|WS_VISIBLE,
+            lx+511, y+3, 28, 18,
+            hWnd, NULL, g_hInst, NULL);
         y += 30;
 
         CreateWindowEx(0, "BUTTON", "Remove Selected",
@@ -367,6 +407,15 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
     {
         int ctl = LOWORD(wParam);
 
+        /* ---- Auto-refresh ppm display ---- */
+        if ((ctl == IDC_BASE_CPD_PPM  && HIWORD(wParam) == EN_CHANGE)    ||
+            (ctl == IDC_BASE_CPD_UNIT && HIWORD(wParam) == CBN_SELCHANGE) ||
+            (ctl == IDC_BASE_YIELD    && HIWORD(wParam) == EN_CHANGE))
+        {
+            RefreshCpdPpmDisplay(hWnd);
+            return 0;
+        }
+
         /* ---- Ingredient autocomplete ---- */
         if (ctl == IDC_BASE_ING_COMBO &&
             HIWORD(wParam) == CBN_EDITCHANGE &&
@@ -387,62 +436,42 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
             return 0;
         }
 
-        /* ---- Convert compound ppm <-> mL ---- */
-        if (ctl == IDC_BBASE_CPD_CONVERT) {
-            char valStr[32], refStr[16];
-            float val, ref;
-            HWND hPpm = GetDlgItem(hWnd, IDC_BASE_CPD_PPM);
-            HWND hRef = GetDlgItem(hWnd, IDC_BBASE_CPD_REF_VOL);
-            GetWindowText(hPpm, valStr, sizeof(valStr));
-            GetWindowText(hRef, refStr, sizeof(refStr));
-            val = (float)atof(valStr);
-            ref = (float)atof(refStr);
-            if (ref <= 0.0f) {
-                MessageBox(hWnd, "Enter a positive reference batch volume.", "Convert", MB_OK);
-                return 0;
-            }
-            if (s_cpd_in_ppm) {
-                snprintf(valStr, sizeof(valStr), "%.4f", val * ref / 1000.0f);
-                SetWindowText(hPpm, valStr);
-                if (g_hCpdUnitLbl) SetWindowText(g_hCpdUnitLbl, "mL:");
-                s_cpd_in_ppm = FALSE;
-            } else {
-                snprintf(valStr, sizeof(valStr), "%.2f", val * 1000.0f / ref);
-                SetWindowText(hPpm, valStr);
-                if (g_hCpdUnitLbl) SetWindowText(g_hCpdUnitLbl, "ppm:");
-                s_cpd_in_ppm = TRUE;
-            }
-            return 0;
-        }
-
         /* ---- Add compound ---- */
         if (ctl == IDC_BBASE_ADD_CPD) {
-            char name[64], ppmStr[32];
-            float ppm;
-            HWND hCombo, hPpm;
-            int sel;
+            char name[64], amtStr[32], unitStr[16], yieldStr[32];
+            float amt, yield, ppm;
+            HWND hCombo, hAmt, hUnit;
+            int  sel;
 
             if (g_baseDlgData.compound_count >= MAX_BASE_COMPOUNDS) {
                 MessageBox(hWnd, "Maximum compounds reached.", "Limit", MB_OK);
                 return 0;
             }
             hCombo = GetDlgItem(hWnd, IDC_BASE_CPD_COMBO);
-            hPpm   = GetDlgItem(hWnd, IDC_BASE_CPD_PPM);
+            hAmt   = GetDlgItem(hWnd, IDC_BASE_CPD_PPM);
+            hUnit  = GetDlgItem(hWnd, IDC_BASE_CPD_UNIT);
             sel    = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
             if (sel == CB_ERR) return 0;
             SendMessage(hCombo, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)name);
-            GetWindowText(hPpm, ppmStr, sizeof(ppmStr));
-            ppm = (float)atof(ppmStr);
-            /* If field is currently in mL mode, convert to ppm before saving */
-            if (!s_cpd_in_ppm) {
-                char refStr[16];
-                float ref;
-                GetWindowText(GetDlgItem(hWnd, IDC_BBASE_CPD_REF_VOL), refStr, sizeof(refStr));
-                ref = (float)atof(refStr);
-                if (ref > 0.0f) ppm = ppm * 1000.0f / ref;
-            }
+            GetWindowText(hAmt, amtStr, sizeof(amtStr));
+            amt = (float)atof(amtStr);
+            sel = (int)SendMessage(hUnit, CB_GETCURSEL, 0, 0);
+            if (sel == CB_ERR) sel = 0;
+            SendMessage(hUnit, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)unitStr);
+            GetWindowText(GetDlgItem(hWnd, IDC_BASE_YIELD), yieldStr, sizeof(yieldStr));
+            yield = (float)atof(yieldStr);
+            if (yield <= 0.0f) yield = 1.0f;
+
+            if      (strcmp(unitStr, "ppm") == 0) ppm = amt;
+            else if (strcmp(unitStr, "g")   == 0) ppm = (amt * 1000.0f)    / yield;
+            else if (strcmp(unitStr, "mL")  == 0) ppm = (amt * 1000.0f)    / yield;
+            else if (strcmp(unitStr, "kg")  == 0) ppm = (amt * 1000000.0f) / yield;
+            else if (strcmp(unitStr, "L")   == 0) ppm = (amt * 1000000.0f) / yield;
+            else if (strcmp(unitStr, "%")   == 0) ppm = amt * 10000.0f;
+            else ppm = 0.0f;
+
             if (ppm <= 0.0f) {
-                MessageBox(hWnd, "Enter a positive ppm value.", "Input", MB_OK);
+                MessageBox(hWnd, "Enter a positive amount.", "Input", MB_OK);
                 return 0;
             }
             strncpy(g_baseDlgData.compounds[g_baseDlgData.compound_count].compound_name,
@@ -452,10 +481,8 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
             g_baseDlgData.compounds[g_baseDlgData.compound_count].compound_library_id = 0;
             g_baseDlgData.compound_count++;
             DlgRefreshBaseCpdList();
-            /* Reset to ppm mode */
-            s_cpd_in_ppm = TRUE;
-            if (g_hCpdUnitLbl) SetWindowText(g_hCpdUnitLbl, "ppm:");
-            SetWindowText(hPpm, "0.0");
+            SetWindowText(hAmt, "0.0");
+            RefreshCpdPpmDisplay(hWnd);
             return 0;
         }
 
@@ -690,8 +717,6 @@ static void OpenBaseDialog(HWND hParent)
     if (IsWindow(hDlg)) DestroyWindow(hDlg);
     g_hBaseDlgCpdLV = NULL;
     g_hBaseDlgIngLV = NULL;
-    g_hCpdUnitLbl   = NULL;
-    s_cpd_in_ppm    = TRUE;
     SetForegroundWindow(hParent);
 }
 

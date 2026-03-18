@@ -133,10 +133,12 @@ extern HINSTANCE g_hInst;
 #define IDC_BASE_NAME         3040
 #define IDC_BASE_YIELD        3041
 #define IDC_BASE_CPD_COMBO    3042
-#define IDC_BASE_CPD_PPM      3043
+#define IDC_BASE_CPD_PPM      3043  /* compound amount field (raw value in chosen unit) */
 #define IDC_BASE_ING_COMBO    3044
 #define IDC_BASE_ING_AMOUNT   3045
 #define IDC_BASE_ING_UNIT     3046
+#define IDC_BASE_CPD_UNIT     3055  /* compound unit combobox */
+#define IDC_BASE_CPD_PPM_DISP 3056  /* read-only calculated ppm display */
 
 /* Formulation dialog — base/ingredient add-row controls */
 #define IDC_DLG_BASE_COMBO    3047
