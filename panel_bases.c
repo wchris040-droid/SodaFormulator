@@ -25,6 +25,7 @@ static SodaBase g_baseDlgData;
 static BOOL     g_baseDlgIsEdit    = FALSE;
 static HWND     g_hBaseDlgCpdLV   = NULL;
 static HWND     g_hBaseDlgIngLV   = NULL;
+static BOOL     s_base_cpd_filter  = FALSE;
 static BOOL     s_base_ing_filter  = FALSE;
 
 /* Local IDs for the base editor dialog */
@@ -105,6 +106,34 @@ static void DlgRefreshBaseIngList(void)
         LV_SetCell(g_hBaseDlgIngLV, i, 1, buf);
         LV_SetCell(g_hBaseDlgIngLV, i, 2, g_baseDlgData.ingredients[i].unit);
     }
+}
+
+/* =========================================================================
+   Filter compound ComboBox by LIKE — drives autocomplete in base editor
+   ========================================================================= */
+static void FilterBaseCpdCombo(HWND hCombo, const char *filter)
+{
+    sqlite3      *db   = db_get_handle();
+    sqlite3_stmt *stmt = NULL;
+    char          pat[128];
+
+    SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
+    if (!db) return;
+
+    snprintf(pat, sizeof(pat), "%%%s%%", filter ? filter : "");
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT compound_name FROM compound_library "
+        "WHERE compound_name LIKE ? ORDER BY compound_name;",
+        -1, &stmt, NULL) != SQLITE_OK)
+        return;
+
+    sqlite3_bind_text(stmt, 1, pat, -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *n = (const char *)sqlite3_column_text(stmt, 0);
+        SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)(n ? n : ""));
+    }
+    sqlite3_finalize(stmt);
 }
 
 /* =========================================================================
@@ -248,7 +277,7 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
         db   = db_get_handle();
         stmt = NULL;
         hCombo = CreateWindowEx(0, "COMBOBOX", NULL,
-            WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
+            WS_CHILD|WS_VISIBLE|CBS_DROPDOWN|WS_VSCROLL,
             lx+35, y, 200, 250,
             hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_COMBO, g_hInst, NULL);
         if (db && sqlite3_prepare_v2(db,
@@ -409,6 +438,26 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
     {
         int ctl = LOWORD(wParam);
 
+        /* ---- Compound autocomplete ---- */
+        if (ctl == IDC_BASE_CPD_COMBO &&
+            HIWORD(wParam) == CBN_EDITCHANGE &&
+            !s_base_cpd_filter)
+        {
+            char text[128];
+            HWND hCombo = GetDlgItem(hWnd, IDC_BASE_CPD_COMBO);
+            int  len;
+            s_base_cpd_filter = TRUE;
+            GetWindowText(hCombo, text, sizeof(text));
+            FilterBaseCpdCombo(hCombo, text);
+            SetWindowText(hCombo, text);
+            len = (int)strlen(text);
+            SendMessage(hCombo, CB_SETEDITSEL, 0, MAKELONG(len, len));
+            if ((int)SendMessage(hCombo, CB_GETCOUNT, 0, 0) > 0)
+                SendMessage(hCombo, CB_SHOWDROPDOWN, TRUE, 0);
+            s_base_cpd_filter = FALSE;
+            return 0;
+        }
+
         /* ---- Auto-refresh ppm display ---- */
         if ((ctl == IDC_BASE_CPD_PPM  && HIWORD(wParam) == EN_CHANGE)    ||
             (ctl == IDC_BASE_CPD_UNIT && HIWORD(wParam) == CBN_SELCHANGE) ||
@@ -452,9 +501,15 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
             hCombo = GetDlgItem(hWnd, IDC_BASE_CPD_COMBO);
             hAmt   = GetDlgItem(hWnd, IDC_BASE_CPD_PPM);
             hUnit  = GetDlgItem(hWnd, IDC_BASE_CPD_UNIT);
-            sel    = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
-            if (sel == CB_ERR) return 0;
-            SendMessage(hCombo, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)name);
+            sel = (int)SendMessage(hCombo, CB_GETCURSEL, 0, 0);
+            if (sel == CB_ERR) {
+                GetWindowText(hCombo, name, sizeof(name));
+                sel = (int)SendMessage(hCombo, CB_FINDSTRINGEXACT,
+                                       (WPARAM)-1, (LPARAM)name);
+            } else {
+                SendMessage(hCombo, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)name);
+            }
+            if (sel == CB_ERR || !name[0]) return 0;
             GetWindowText(hAmt, amtStr, sizeof(amtStr));
             amt = (float)atof(amtStr);
             sel = (int)SendMessage(hUnit, CB_GETCURSEL, 0, 0);
