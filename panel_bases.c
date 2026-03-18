@@ -158,6 +158,7 @@ static void RefreshCpdPpmDisplay(HWND hWnd)
     if (yield <= 0.0f) yield = 1.0f;
 
     if      (strcmp(unitStr, "ppm") == 0) ppm = amt;
+    else if (strcmp(unitStr, "mg")  == 0) ppm = amt                / yield;
     else if (strcmp(unitStr, "g")   == 0) ppm = (amt * 1000.0f)    / yield;
     else if (strcmp(unitStr, "mL")  == 0) ppm = (amt * 1000.0f)    / yield;
     else if (strcmp(unitStr, "kg")  == 0) ppm = (amt * 1000000.0f) / yield;
@@ -272,6 +273,7 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
                 lx+305, y, 55, 130,
                 hWnd, (HMENU)(INT_PTR)IDC_BASE_CPD_UNIT, g_hInst, NULL);
             SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"ppm");
+            SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"mg");
             SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"g");
             SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"mL");
             SendMessage(hUnitC, CB_ADDSTRING, 0, (LPARAM)"kg");
@@ -463,6 +465,7 @@ static LRESULT CALLBACK BaseDlgWndProc(HWND hWnd, UINT msg,
             if (yield <= 0.0f) yield = 1.0f;
 
             if      (strcmp(unitStr, "ppm") == 0) ppm = amt;
+            else if (strcmp(unitStr, "mg")  == 0) ppm = amt                / yield;
             else if (strcmp(unitStr, "g")   == 0) ppm = (amt * 1000.0f)    / yield;
             else if (strcmp(unitStr, "mL")  == 0) ppm = (amt * 1000.0f)    / yield;
             else if (strcmp(unitStr, "kg")  == 0) ppm = (amt * 1000000.0f) / yield;
